@@ -151,7 +151,6 @@
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
     
-    // エリア情報を含めた初期お気に入りリスト
     const defaultFavs = [
       { area: "愛知県", name: "EneJet戸崎町SS(光南工業)" },
       { area: "愛知県", name: "D.D.セルフ北名古屋(モビリニア)" },
@@ -189,18 +188,42 @@
       updateStoreDropdowns();
       renderHistory();
       renderChart();
+
+      // 起動直後に自動で現在地を取得して地図の中心に移動させる
+      autoSetCurrentLocation();
     };
 
     function initMap() {
+      // 一時的なデフォルト（GPS取得までの仮表示用）
       map = L.map('map', {
         gestureHandling: true
-      }).setView([35.6812, 139.7671], 13);
+      }).setView([35.1815, 136.9064], 12);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
 
       updateMapMarkers();
+    }
+
+    // 起動時の自動現在地設定関数（通知や店舗名入力は行わず、地図移動のみを静かに実施）
+    function autoSetCurrentLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            currentLat = position.coords.latitude;
+            currentLng = position.coords.longitude;
+            
+            map.setView([currentLat, currentLng], 15);
+            if (currentMarker) map.removeLayer(currentMarker);
+            currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
+          },
+          (err) => {
+            // 自動取得不可時のサイレントフォールバック
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+      }
     }
 
     function recenterMap() {
@@ -417,7 +440,6 @@
       updateMapMarkers();
     }
 
-    // 履歴テーブル描画（「編集」ボタン追加）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
@@ -446,7 +468,6 @@
       });
     }
 
-    // 店舗名の修正関数
     function editStoreName(id) {
       const item = db.find(i => i.id === id);
       if (!item) return;
