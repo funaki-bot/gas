@@ -18,17 +18,21 @@
     .btn-gps { background: #28a745; margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .fav-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 6px 10px; border-radius: 16px; font-size: 0.85rem; cursor: pointer; }
-    #map { height: 200px; border-radius: 6px; margin-top: 8px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.8rem; }
+    .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 4px 8px; border-radius: 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+    .fav-del { color: #dc3545; font-weight: bold; cursor: pointer; padding: 0 2px; }
+    #map { height: 250px; border-radius: 6px; margin-top: 8px; }
+    .map-header { display: flex; justify-content: space-between; align-items: center; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
     th { background: #f8f9fa; }
+    .filter-group { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   </style>
 </head>
 <body>
 
   <h1>⛽ ガソリン価格調査</h1>
 
+  <!-- 入力フォーム -->
   <div class="card">
     <button type="button" class="btn-gps" onclick="getGPSLocation()">📍 現在地・店舗名を自動セット</button>
     
@@ -63,20 +67,34 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
+  <!-- 位置確認マップ -->
   <div class="card">
-    <label>位置確認マップ</label>
+    <div class="map-header">
+      <label style="margin:0;">位置確認マップ</label>
+      <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#6c757d;">📍 現在地に移動</button>
+    </div>
     <div id="map"></div>
   </div>
 
+  <!-- 価格推移グラフ -->
   <div class="card">
     <label>価格推移グラフ</label>
+    <div class="filter-group">
+      <span style="font-size:0.85rem; font-weight:bold;">店舗絞り込み:</span>
+      <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
+    </div>
     <canvas id="priceChart"></canvas>
   </div>
 
+  <!-- 履歴データ -->
   <div class="card">
-    <div style="display:flex; justify-between; align-items:center;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
       <label style="margin:0;">履歴データ</label>
       <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV出力</button>
+    </div>
+    <div class="filter-group">
+      <span style="font-size:0.85rem; font-weight:bold;">店舗絞り込み:</span>
+      <select id="historyStoreFilter" onchange="renderHistory()" style="padding:4px; font-size:0.85rem;"></select>
     </div>
     <div style="overflow-x:auto;">
       <table id="historyTable">
@@ -84,7 +102,11 @@
           <tr>
             <th>日時</th>
             <th>店舗</th>
-            <th>レギュラー</th>
+            <th>レギュラー<br>(看板/会員)</th>
+            <th>ハイオク<br>(看板/会員)</th>
+            <th>軽油<br>(看板/会員)</th>
+            <th>灯油<br>(看板/会員)</th>
+            <th>メモ</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -95,41 +117,47 @@
 
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
-    let favorites = JSON.parse(localStorage.getItem('gasFavs') || '["ENEOS", "出光", "コスモ"]');
-    let map, marker, chart;
+    let favorites = JSON.parse(localStorage.getItem('gasFavs') || '["ENEOS", "出光", "コスモ", "セルフィックス北名古屋SS"]');
+    let map, currentMarker;
+    let historyMarkers = [];
+    let chart;
     let currentLat = null, currentLng = null;
 
     window.onload = function() {
-      // 日時の初期値（現在時刻）
       const now = new Date();
       now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
       document.getElementById('surveyDate').value = now.toISOString().slice(0,16);
 
       initMap();
       renderFavorites();
+      updateStoreDropdowns();
       renderHistory();
       renderChart();
     };
 
     function initMap() {
-      map = L.map('map').setView([35.6812, 139.7671], 13); // デフォルト東京駅
+      map = L.map('map').setView([35.6812, 139.7671], 13);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
+
+      updateMapMarkers();
     }
 
-    // GPS位置情報の取得（ローカル環境用エラーリカバリー強化版）
+    function recenterMap() {
+      if (currentLat && currentLng) {
+        map.setView([currentLat, currentLng], 16);
+      } else {
+        getGPSLocation();
+      }
+    }
+
+    // 強化版：周辺SS（ノード・エリア両対応）の最短距離特定ロジック
     function getGPSLocation() {
       if (!navigator.geolocation) {
-        alert("お使いのブラウザは位置情報に対応していません。");
+        alert("位置情報機能に対応していません。");
         return;
       }
-
-      const options = {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 0
-      };
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -137,50 +165,98 @@
           currentLng = position.coords.longitude;
           
           map.setView([currentLat, currentLng], 16);
-          if (marker) map.removeLayer(marker);
-          marker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
+          if (currentMarker) map.removeLayer(currentMarker);
+          currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
 
-          // 逆ジオコーディングで簡易住所・店舗名取得
-          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLng}`)
+          // 半径1.5km以内のガソリンスタンドデータ（amenity=fuel）を取得
+          const query = `[out:json];(node(around:1500,${currentLat},${currentLng})[amenity=fuel];way(around:1500,${currentLat},${currentLng})[amenity=fuel];);out center;`;
+          fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
             .then(res => res.json())
             .then(data => {
-              if (data && data.display_name) {
-                const nameParts = data.display_name.split(',');
-                document.getElementById('storeName').value = nameParts[0] || "現在地周辺店舗";
+              if (data && data.elements && data.elements.length > 0) {
+                let closest = null;
+                let minDist = Infinity;
+                
+                data.elements.forEach(el => {
+                  const elLat = el.lat || (el.center && el.center.lat);
+                  const elLng = el.lon || (el.center && el.center.lon);
+                  if (elLat && elLng) {
+                    const dist = Math.hypot(elLat - currentLat, elLng - currentLng);
+                    if (dist < minDist) {
+                      minDist = dist;
+                      closest = el;
+                    }
+                  }
+                });
+
+                if (closest && closest.tags) {
+                  const tags = closest.tags;
+                  const ssName = tags.name || tags.brand || tags['name:ja'] || "周辺ガソリンスタンド";
+                  document.getElementById('storeName').value = ssName;
+                } else {
+                  fallbackAddress();
+                }
+              } else {
+                fallbackAddress();
               }
             })
             .catch(() => {
-              document.getElementById('storeName').value = `位置情報 (${currentLat.toFixed(4)}, ${currentLng.toFixed(4)})`;
+              fallbackAddress();
             });
         },
-        (error) => {
-          // 高精度エラー時はフォールバック（低精度）で再試行
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              currentLat = pos.coords.latitude;
-              currentLng = pos.coords.longitude;
-              map.setView([currentLat, currentLng], 15);
-              if (marker) map.removeLayer(marker);
-              marker = L.marker([currentLat, currentLng]).addTo(map);
-            },
-            (err) => {
-              alert("位置情報が取得できませんでした。ブラウザの位置情報設定を「許可」にしてください。\nエラー: " + err.message);
-            },
-            { enableHighAccuracy: false, timeout: 10000 }
-          );
+        (err) => {
+          alert("位置情報を取得できませんでした: " + err.message);
         },
-        options
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
 
+    function fallbackAddress() {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLng}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d && d.display_name) {
+            document.getElementById('storeName').value = d.display_name.split(',')[0];
+          } else {
+            document.getElementById('storeName').value = "現在地周辺店舗";
+          }
+        })
+        .catch(() => {
+          document.getElementById('storeName').value = "現在地周辺店舗";
+        });
+    }
+
+    // 実績のあるSSにマップ上でフラグ（赤ピン）を立てる
+    function updateMapMarkers() {
+      historyMarkers.forEach(m => map.removeLayer(m));
+      historyMarkers = [];
+
+      const redIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+      });
+
+      db.forEach(item => {
+        if (item.lat && item.lng) {
+          const m = L.marker([item.lat, item.lng], { icon: redIcon }).addTo(map)
+            .bindPopup(`<b>${item.store}</b><br>${item.date.slice(0,10)} 調査実績あり`);
+          historyMarkers.push(m);
+        }
+      });
+    }
+
+    // お気に入りタグの描画（削除ボタン付き）
     function renderFavorites() {
       const container = document.getElementById('favContainer');
       container.innerHTML = '';
-      favorites.forEach(fav => {
-        const tag = document.createElement('span');
+      favorites.forEach((fav, index) => {
+        const tag = document.createElement('div');
         tag.className = 'fav-tag';
-        tag.textContent = fav;
-        tag.onclick = () => { document.getElementById('storeName').value = fav; };
+        tag.innerHTML = `
+          <span onclick="document.getElementById('storeName').value='${fav}'">${fav}</span>
+          <span class="fav-del" onclick="removeFavoriteStore(${index})">✕</span>
+        `;
         container.appendChild(tag);
       });
     }
@@ -194,6 +270,33 @@
         renderFavorites();
         input.value = '';
       }
+    }
+
+    function removeFavoriteStore(index) {
+      favorites.splice(index, 1);
+      localStorage.setItem('gasFavs', JSON.stringify(favorites));
+      renderFavorites();
+    }
+
+    function updateStoreDropdowns() {
+      const stores = Array.from(new Set(db.map(i => i.store).filter(Boolean)));
+      
+      const chartSelect = document.getElementById('chartStoreFilter');
+      const historySelect = document.getElementById('historyStoreFilter');
+      
+      const currentChartVal = chartSelect.value;
+      const currentHistoryVal = historySelect.value;
+
+      let optionsHTML = '<option value="ALL">すべての店舗</option>';
+      stores.forEach(s => {
+        optionsHTML += `<option value="${s}">${s}</option>`;
+      });
+
+      chartSelect.innerHTML = optionsHTML;
+      historySelect.innerHTML = optionsHTML;
+
+      chartSelect.value = stores.includes(currentChartVal) ? currentChartVal : 'ALL';
+      historySelect.value = stores.includes(currentHistoryVal) ? currentHistoryVal : 'ALL';
     }
 
     function saveData() {
@@ -218,53 +321,80 @@
       localStorage.setItem('gasData', JSON.stringify(db));
       
       alert('保存しました！');
+      updateStoreDropdowns();
       renderHistory();
       renderChart();
+      updateMapMarkers();
     }
 
+    // 履歴テーブル描画（全油種・店舗絞り込み）
     function renderHistory() {
+      const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
       tbody.innerHTML = '';
-      db.forEach(item => {
+
+      const filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
+
+      filtered.forEach(item => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${item.date.replace('T', ' ')}</td>
-          <td>${item.store}</td>
-          <td>${item.regSign ? item.regSign + '円' : '-'}</td>
+          <td><b>${item.store}</b></td>
+          <td>${fmt(item.regSign)} / ${fmt(item.regMem)}</td>
+          <td>${fmt(item.hiSign)} / ${fmt(item.hiMem)}</td>
+          <td>${fmt(item.dieSign)} / ${fmt(item.dieMem)}</td>
+          <td>${fmt(item.keroSign)} / ${fmt(item.keroMem)}</td>
+          <td>${item.memo || '-'}</td>
           <td><button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#dc3545;" onclick="deleteData(${item.id})">削除</button></td>
         `;
         tbody.appendChild(tr);
       });
     }
 
+    function fmt(val) {
+      return val ? val + '円' : '-';
+    }
+
     function deleteData(id) {
       if (confirm('削除しますか？')) {
         db = db.filter(item => item.id !== id);
         localStorage.setItem('gasData', JSON.stringify(db));
+        updateStoreDropdowns();
         renderHistory();
         renderChart();
+        updateMapMarkers();
       }
     }
 
+    // 価格推移グラフ描画（4油種表示・店舗絞り込み対応）
     function renderChart() {
+      const selectedStore = document.getElementById('chartStoreFilter').value;
       const ctx = document.getElementById('priceChart').getContext('2d');
-      const sorted = [...db].reverse();
-      const labels = sorted.map(i => i.date.slice(5, 10));
-      const regPrices = sorted.map(i => i.regSign || null);
+      
+      let filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
+      filtered = [...filtered].reverse(); // 時系列順
 
+      const labels = filtered.map(i => i.date.slice(5, 10));
+      
       if (chart) chart.destroy();
       chart = new Chart(ctx, {
         type: 'line',
         data: {
           labels: labels,
-          datasets: [{
-            label: 'レギュラー看板価格',
-            data: regPrices,
-            borderColor: '#007bff',
-            spanGaps: true
-          }]
+          datasets: [
+            { label: 'レギュラー(看板)', data: filtered.map(i => i.regSign || null), borderColor: '#007bff', tension: 0.1, spanGaps: true },
+            { label: 'ハイオク(看板)', data: filtered.map(i => i.hiSign || null), borderColor: '#dc3545', tension: 0.1, spanGaps: true },
+            { label: '軽油(看板)', data: filtered.map(i => i.dieSign || null), borderColor: '#28a745', tension: 0.1, spanGaps: true },
+            { label: '灯油(看板)', data: filtered.map(i => i.keroSign || null), borderColor: '#ffc107', tension: 0.1, spanGaps: true }
+          ]
         },
-        options: { responsive: true, maintainAspectRatio: true }
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+          }
+        }
       });
     }
 
