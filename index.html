@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ガソリン価格調査</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 12px; background: #f4f6f8; color: #333; }
+    h1 { font-size: 1.2rem; margin: 0 0 12px 0; text-align: center; }
+    .card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    label { display: block; font-size: 0.85rem; font-weight: bold; margin-top: 8px; margin-bottom: 4px; }
+    input, select, textarea, button { width: 100%; padding: 10px; font-size: 1rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+    button { background: #007bff; color: white; border: none; font-weight: bold; margin-top: 12px; cursor: pointer; }
+    button:active { background: #0056b3; }
+    .btn-gps { background: #28a745; margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .fav-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 6px 10px; border-radius: 16px; font-size: 0.85rem; cursor: pointer; }
+    #map { height: 200px; border-radius: 6px; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.8rem; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+    th { background: #f8f9fa; }
+  </style>
+</head>
+<body>
+
+  <h1>⛽ ガソリン価格調査</h1>
+
+  <div class="card">
+    <button type="button" class="btn-gps" onclick="getGPSLocation()">📍 現在地・店舗名を自動セット</button>
+    
+    <label>店舗名</label>
+    <input type="text" id="storeName" placeholder="例: ENEOS 〇〇店">
+    
+    <div class="fav-tags" id="favContainer"></div>
+
+    <div style="display: flex; gap: 6px; margin-top: 8px;">
+      <input type="text" id="newFavInput" placeholder="お気に入り店舗を追加" style="font-size:0.85rem;">
+      <button type="button" onclick="addFavoriteStore()" style="width:auto; margin:0; padding:6px 12px; font-size:0.85rem;">追加</button>
+    </div>
+
+    <label>日時</label>
+    <input type="datetime-local" id="surveyDate">
+
+    <label>価格（看板 / 会員）</label>
+    <div class="grid">
+      <input type="number" id="regSign" placeholder="レギュラー看板">
+      <input type="number" id="regMem" placeholder="レギュラー会員">
+      <input type="number" id="hiSign" placeholder="ハイオク看板">
+      <input type="number" id="hiMem" placeholder="ハイオク会員">
+      <input type="number" id="dieSign" placeholder="軽油看板">
+      <input type="number" id="dieMem" placeholder="軽油会員">
+      <input type="number" id="keroSign" placeholder="灯油看板">
+      <input type="number" id="keroMem" placeholder="灯油会員">
+    </div>
+
+    <label>メモ</label>
+    <textarea id="memo" rows="2" placeholder="クーポン使用など"></textarea>
+
+    <button type="button" onclick="saveData()">データを保存</button>
+  </div>
+
+  <div class="card">
+    <label>位置確認マップ</label>
+    <div id="map"></div>
+  </div>
+
+  <div class="card">
+    <label>価格推移グラフ</label>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-between; align-items:center;">
+      <label style="margin:0;">履歴データ</label>
+      <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV出力</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="historyTable">
+        <thead>
+          <tr>
+            <th>日時</th>
+            <th>店舗</th>
+            <th>レギュラー</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let db = JSON.parse(localStorage.getItem('gasData') || '[]');
+    let favorites = JSON.parse(localStorage.getItem('gasFavs') || '["ENEOS", "出光", "コスモ"]');
+    let map, marker, chart;
+    let currentLat = null, currentLng = null;
+
+    window.onload = function() {
+      // 日時の初期値（現在時刻）
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById('surveyDate').value = now.toISOString().slice(0,16);
+
+      initMap();
+      renderFavorites();
+      renderHistory();
+      renderChart();
+    };
+
+    function initMap() {
+      map = L.map('map').setView([35.6812, 139.7671], 13); // デフォルト東京駅
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(map);
+    }
+
+    // GPS位置情報の取得（ローカル環境用エラーリカバリー強化版）
+    function getGPSLocation() {
+      if (!navigator.geolocation) {
+        alert("お使いのブラウザは位置情報に対応していません。");
+        return;
+      }
+
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          currentLat = position.coords.latitude;
+          currentLng = position.coords.longitude;
+          
+          map.setView([currentLat, currentLng], 16);
+          if (marker) map.removeLayer(marker);
+          marker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
+
+          // 逆ジオコーディングで簡易住所・店舗名取得
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLng}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data && data.display_name) {
+                const nameParts = data.display_name.split(',');
+                document.getElementById('storeName').value = nameParts[0] || "現在地周辺店舗";
+              }
+            })
+            .catch(() => {
+              document.getElementById('storeName').value = `位置情報 (${currentLat.toFixed(4)}, ${currentLng.toFixed(4)})`;
+            });
+        },
+        (error) => {
+          // 高精度エラー時はフォールバック（低精度）で再試行
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              currentLat = pos.coords.latitude;
+              currentLng = pos.coords.longitude;
+              map.setView([currentLat, currentLng], 15);
+              if (marker) map.removeLayer(marker);
+              marker = L.marker([currentLat, currentLng]).addTo(map);
+            },
+            (err) => {
+              alert("位置情報が取得できませんでした。ブラウザの位置情報設定を「許可」にしてください。\nエラー: " + err.message);
+            },
+            { enableHighAccuracy: false, timeout: 10000 }
+          );
+        },
+        options
+      );
+    }
+
+    function renderFavorites() {
+      const container = document.getElementById('favContainer');
+      container.innerHTML = '';
+      favorites.forEach(fav => {
+        const tag = document.createElement('span');
+        tag.className = 'fav-tag';
+        tag.textContent = fav;
+        tag.onclick = () => { document.getElementById('storeName').value = fav; };
+        container.appendChild(tag);
+      });
+    }
+
+    function addFavoriteStore() {
+      const input = document.getElementById('newFavInput');
+      const val = input.value.trim();
+      if (val && !favorites.includes(val)) {
+        favorites.push(val);
+        localStorage.setItem('gasFavs', JSON.stringify(favorites));
+        renderFavorites();
+        input.value = '';
+      }
+    }
+
+    function saveData() {
+      const entry = {
+        id: Date.now(),
+        date: document.getElementById('surveyDate').value,
+        store: document.getElementById('storeName').value || '未設定店舗',
+        regSign: document.getElementById('regSign').value,
+        regMem: document.getElementById('regMem').value,
+        hiSign: document.getElementById('hiSign').value,
+        hiMem: document.getElementById('hiMem').value,
+        dieSign: document.getElementById('dieSign').value,
+        dieMem: document.getElementById('dieMem').value,
+        keroSign: document.getElementById('keroSign').value,
+        keroMem: document.getElementById('keroMem').value,
+        memo: document.getElementById('memo').value,
+        lat: currentLat,
+        lng: currentLng
+      };
+
+      db.unshift(entry);
+      localStorage.setItem('gasData', JSON.stringify(db));
+      
+      alert('保存しました！');
+      renderHistory();
+      renderChart();
+    }
+
+    function renderHistory() {
+      const tbody = document.querySelector('#historyTable tbody');
+      tbody.innerHTML = '';
+      db.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.date.replace('T', ' ')}</td>
+          <td>${item.store}</td>
+          <td>${item.regSign ? item.regSign + '円' : '-'}</td>
+          <td><button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#dc3545;" onclick="deleteData(${item.id})">削除</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function deleteData(id) {
+      if (confirm('削除しますか？')) {
+        db = db.filter(item => item.id !== id);
+        localStorage.setItem('gasData', JSON.stringify(db));
+        renderHistory();
+        renderChart();
+      }
+    }
+
+    function renderChart() {
+      const ctx = document.getElementById('priceChart').getContext('2d');
+      const sorted = [...db].reverse();
+      const labels = sorted.map(i => i.date.slice(5, 10));
+      const regPrices = sorted.map(i => i.regSign || null);
+
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'レギュラー看板価格',
+            data: regPrices,
+            borderColor: '#007bff',
+            spanGaps: true
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: true }
+      });
+    }
+
+    function exportCSV() {
+      if (db.length === 0) { alert('データがありません。'); return; }
+      let csv = "\uFEFF日時,店舗名,レギュラー看板,レギュラー会員,ハイオク看板,ハイオク会員,軽油看板,軽油会員,灯油看板,灯油会員,メモ,緯度,経度\n";
+      db.forEach(i => {
+        csv += `"${i.date}","${i.store}","${i.regSign}","${i.regMem}","${i.hiSign}","${i.hiMem}","${i.dieSign}","${i.dieMem}","${i.keroSign}","${i.keroMem}","${i.memo}","${i.lat||''}","${i.lng||''}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `ガソリン価格調査_${new Date().toISOString().slice(0,10)}.csv`;
+      link.click();
+    }
+  </script>
+</body>
+</html>
