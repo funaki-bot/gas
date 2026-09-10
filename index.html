@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ガソリン価格調査</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- 2本指操作（ジェスチャーハンドリング）のCSS/JSライブラリ -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-gesture-handling/dist/leaflet-gesture-handling.min.css" type="text/css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-gesture-handling"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: sans-serif; margin: 0; padding: 12px; background: #f4f6f8; color: #333; }
@@ -169,7 +172,11 @@
     };
 
     function initMap() {
-      map = L.map('map').setView([35.6812, 139.7671], 13);
+      // gestureHandling: true を追加して2本指操作を有効化
+      map = L.map('map', {
+        gestureHandling: true
+      }).setView([35.6812, 139.7671], 13);
+
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
@@ -394,14 +401,13 @@
       }
     }
 
-    // 価格推移グラフ描画（店舗・油種両対応）
     function renderChart() {
       const selectedStore = document.getElementById('chartStoreFilter').value;
       const selectedFuel = document.getElementById('chartFuelFilter').value;
       const ctx = document.getElementById('priceChart').getContext('2d');
       
       let filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
-      filtered = [...filtered].reverse(); // 時系列順
+      filtered = [...filtered].reverse();
 
       const labels = filtered.map(i => i.date.slice(5, 10));
       const chartData = filtered.map(i => i[selectedFuel] || null);
