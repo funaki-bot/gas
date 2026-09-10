@@ -110,8 +110,12 @@
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
       <label style="margin:0;">履歴データ</label>
-      <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV出力</button>
+      <div style="display:flex; gap:4px;">
+        <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV保存</button>
+        <button type="button" onclick="sendEmailCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">CSV保存＆メール起動</button>
+      </div>
     </div>
+
     <div class="filter-group">
       <div class="filter-row">
         <span>店舗絞り込み:</span>
@@ -172,7 +176,6 @@
     };
 
     function initMap() {
-      // gestureHandling: true を追加して2本指操作を有効化
       map = L.map('map', {
         gestureHandling: true
       }).setView([35.6812, 139.7671], 13);
@@ -450,6 +453,23 @@
       link.href = URL.createObjectURL(blob);
       link.download = `ガソリン価格調査_${new Date().toISOString().slice(0,10)}.csv`;
       link.click();
+    }
+
+    // CSV保存 + 固定条件でメールアプリ起動
+    function sendEmailCSV() {
+      if (db.length === 0) { alert('データがありません。'); return; }
+
+      // 1. CSV保存を実行
+      exportCSV();
+
+      // 2. 固定の宛先・件名でメール作成画面を起動（本文は空欄）
+      const targetEmail = "funaki@selfix.jp";
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const subject = encodeURIComponent(`ガソリン価格調査_${todayStr}`);
+      
+      setTimeout(() => {
+        window.location.href = `mailto:${targetEmail}?subject=${subject}`;
+      }, 500);
     }
   </script>
 </body>
