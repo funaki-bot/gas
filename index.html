@@ -195,11 +195,14 @@
       }
     }
 
+    // 通りかかり調査向け：広域道路対応SS検索ロジック（広域3km＆最寄SS自動判定）
     function getGPSLocation() {
       if (!navigator.geolocation) {
         alert("位置情報機能に対応していません。");
         return;
       }
+
+      document.getElementById('storeName').placeholder = "周辺のガソリンスタンドを検索中...";
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -210,7 +213,8 @@
           if (currentMarker) map.removeLayer(currentMarker);
           currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
 
-          const query = `[out:json];(node(around:1500,${currentLat},${currentLng})[amenity=fuel];way(around:1500,${currentLat},${currentLng})[amenity=fuel];);out center;`;
+          // 道路からの検知用に半径を3000m（3km）へ拡大検索
+          const query = `[out:json];(node(around:3000,${currentLat},${currentLng})[amenity=fuel];way(around:3000,${currentLat},${currentLng})[amenity=fuel];);out center;`;
           fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
             .then(res => res.json())
             .then(data => {
@@ -218,6 +222,7 @@
                 let closest = null;
                 let minDist = Infinity;
                 
+                // 現在位置から最も近いガソリンスタンドを特定
                 data.elements.forEach(el => {
                   const elLat = el.lat || (el.center && el.center.lat);
                   const elLng = el.lon || (el.center && el.center.lon);
@@ -232,7 +237,7 @@
 
                 if (closest && closest.tags) {
                   const tags = closest.tags;
-                  const ssName = tags.name || tags.brand || tags['name:ja'] || "周辺ガソリンスタンド";
+                  const ssName = tags.name || tags.brand || tags['name:ja'] || tags.operator || "周辺ガソリンスタンド";
                   document.getElementById('storeName').value = ssName;
                 } else {
                   fallbackAddress();
@@ -247,6 +252,7 @@
         },
         (err) => {
           alert("位置情報を取得できませんでした: " + err.message);
+          document.getElementById('storeName').placeholder = "例: ENEOS 〇〇店";
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
@@ -455,14 +461,11 @@
       link.click();
     }
 
-    // CSV保存 + 固定条件でメールアプリ起動
     function sendEmailCSV() {
       if (db.length === 0) { alert('データがありません。'); return; }
 
-      // 1. CSV保存を実行
       exportCSV();
 
-      // 2. 固定の宛先・件名でメール作成画面を起動（本文は空欄）
       const targetEmail = "funaki@selfix.jp";
       const todayStr = new Date().toISOString().slice(0, 10);
       const subject = encodeURIComponent(`ガソリン価格調査_${todayStr}`);
