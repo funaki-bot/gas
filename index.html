@@ -25,7 +25,9 @@
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
     th { background: #f8f9fa; }
-    .filter-group { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .filter-row { display: flex; align-items: center; gap: 8px; }
+    .filter-row span { font-size: 0.8rem; font-weight: bold; width: 70px; shrink: 0; }
   </style>
 </head>
 <body>
@@ -80,8 +82,23 @@
   <div class="card">
     <label>価格推移グラフ</label>
     <div class="filter-group">
-      <span style="font-size:0.85rem; font-weight:bold;">店舗絞り込み:</span>
-      <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
+      <div class="filter-row">
+        <span>店舗絞り込み:</span>
+        <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
+      </div>
+      <div class="filter-row">
+        <span>油種選択:</span>
+        <select id="chartFuelFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;">
+          <option value="regSign">レギュラー (看板)</option>
+          <option value="regMem">レギュラー (会員)</option>
+          <option value="hiSign">ハイオク (看板)</option>
+          <option value="hiMem">ハイオク (会員)</option>
+          <option value="dieSign">軽油 (看板)</option>
+          <option value="dieMem">軽油 (会員)</option>
+          <option value="keroSign">灯油 (看板)</option>
+          <option value="keroMem">灯油 (会員)</option>
+        </select>
+      </div>
     </div>
     <canvas id="priceChart"></canvas>
   </div>
@@ -93,8 +110,10 @@
       <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV出力</button>
     </div>
     <div class="filter-group">
-      <span style="font-size:0.85rem; font-weight:bold;">店舗絞り込み:</span>
-      <select id="historyStoreFilter" onchange="renderHistory()" style="padding:4px; font-size:0.85rem;"></select>
+      <div class="filter-row">
+        <span>店舗絞り込み:</span>
+        <select id="historyStoreFilter" onchange="renderHistory()" style="padding:4px; font-size:0.85rem;"></select>
+      </div>
     </div>
     <div style="overflow-x:auto;">
       <table id="historyTable">
@@ -122,6 +141,20 @@
     let historyMarkers = [];
     let chart;
     let currentLat = null, currentLng = null;
+
+    const fuelNames = {
+      regSign: 'レギュラー(看板)', regMem: 'レギュラー(会員)',
+      hiSign: 'ハイオク(看板)', hiMem: 'ハイオク(会員)',
+      dieSign: '軽油(看板)', dieMem: '軽油(会員)',
+      keroSign: '灯油(看板)', keroMem: '灯油(会員)'
+    };
+
+    const fuelColors = {
+      regSign: '#007bff', regMem: '#0056b3',
+      hiSign: '#dc3545', hiMem: '#bd2130',
+      dieSign: '#28a745', dieMem: '#1e7e34',
+      keroSign: '#ffc107', keroMem: '#d39e00'
+    };
 
     window.onload = function() {
       const now = new Date();
@@ -152,7 +185,6 @@
       }
     }
 
-    // 強化版：周辺SS（ノード・エリア両対応）の最短距離特定ロジック
     function getGPSLocation() {
       if (!navigator.geolocation) {
         alert("位置情報機能に対応していません。");
@@ -168,7 +200,6 @@
           if (currentMarker) map.removeLayer(currentMarker);
           currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
 
-          // 半径1.5km以内のガソリンスタンドデータ（amenity=fuel）を取得
           const query = `[out:json];(node(around:1500,${currentLat},${currentLng})[amenity=fuel];way(around:1500,${currentLat},${currentLng})[amenity=fuel];);out center;`;
           fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
             .then(res => res.json())
@@ -226,7 +257,6 @@
         });
     }
 
-    // 実績のあるSSにマップ上でフラグ（赤ピン）を立てる
     function updateMapMarkers() {
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
@@ -246,7 +276,6 @@
       });
     }
 
-    // お気に入りタグの描画（削除ボタン付き）
     function renderFavorites() {
       const container = document.getElementById('favContainer');
       container.innerHTML = '';
@@ -327,7 +356,6 @@
       updateMapMarkers();
     }
 
-    // 履歴テーブル描画（全油種・店舗絞り込み）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
@@ -366,15 +394,17 @@
       }
     }
 
-    // 価格推移グラフ描画（4油種表示・店舗絞り込み対応）
+    // 価格推移グラフ描画（店舗・油種両対応）
     function renderChart() {
       const selectedStore = document.getElementById('chartStoreFilter').value;
+      const selectedFuel = document.getElementById('chartFuelFilter').value;
       const ctx = document.getElementById('priceChart').getContext('2d');
       
       let filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
       filtered = [...filtered].reverse(); // 時系列順
 
       const labels = filtered.map(i => i.date.slice(5, 10));
+      const chartData = filtered.map(i => i[selectedFuel] || null);
       
       if (chart) chart.destroy();
       chart = new Chart(ctx, {
@@ -382,10 +412,15 @@
         data: {
           labels: labels,
           datasets: [
-            { label: 'レギュラー(看板)', data: filtered.map(i => i.regSign || null), borderColor: '#007bff', tension: 0.1, spanGaps: true },
-            { label: 'ハイオク(看板)', data: filtered.map(i => i.hiSign || null), borderColor: '#dc3545', tension: 0.1, spanGaps: true },
-            { label: '軽油(看板)', data: filtered.map(i => i.dieSign || null), borderColor: '#28a745', tension: 0.1, spanGaps: true },
-            { label: '灯油(看板)', data: filtered.map(i => i.keroSign || null), borderColor: '#ffc107', tension: 0.1, spanGaps: true }
+            {
+              label: fuelNames[selectedFuel],
+              data: chartData,
+              borderColor: fuelColors[selectedFuel],
+              backgroundColor: fuelColors[selectedFuel] + '22',
+              fill: true,
+              tension: 0.1,
+              spanGaps: true
+            }
           ]
         },
         options: {
