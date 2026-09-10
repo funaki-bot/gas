@@ -23,7 +23,8 @@
     .fav-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 4px 8px; border-radius: 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
     .fav-del { color: #dc3545; font-weight: bold; cursor: pointer; padding: 0 2px; }
-    #map { height: 250px; border-radius: 6px; margin-top: 8px; }
+    /* 地図の高さを350px（約1.4倍）に拡張 */
+    #map { height: 350px; border-radius: 6px; margin-top: 8px; }
     .map-header { display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
@@ -72,7 +73,7 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 位置確認マップ -->
+  <!-- 位置確認マップ（高さ拡張版） -->
   <div class="card">
     <div class="map-header">
       <label style="margin:0;">位置確認マップ</label>
