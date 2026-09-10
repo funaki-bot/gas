@@ -143,6 +143,7 @@
 
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
+    // 初期お気に入り店舗リストをご指定の具体的一覧に更新
     let favorites = JSON.parse(localStorage.getItem('gasFavs') || '["EneJet戸崎町SS(光南工業)", "セルフィックス岐阜東(日商有田)", "D.D.セルフ北名古屋(モビリニア)"]');
     let map, currentMarker;
     let historyMarkers = [];
@@ -195,7 +196,6 @@
       }
     }
 
-    // 運営会社（特約店）名を含めた詳細店舗名抽出ロジック
     function getGPSLocation() {
       if (!navigator.geolocation) {
         alert("位置情報機能に対応していません。");
@@ -238,7 +238,6 @@
                   const rawName = tags.name || tags.brand || tags['name:ja'] || "SS店舗";
                   const operator = tags.operator || tags.company || tags['operator:ja'] || "";
                   
-                  // 店舗名に運営会社名がすでに含まれていなければ (運営会社) を付与
                   let fullName = rawName;
                   if (operator && !rawName.includes(operator)) {
                     fullName = `${rawName}(${operator})`;
