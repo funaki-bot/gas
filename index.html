@@ -44,11 +44,18 @@
     <label>店舗名</label>
     <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
     
+    <!-- 都道府県・エリア絞り込みドロップダウン -->
+    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+      <span style="font-size: 0.8rem; font-weight: bold; white-space: nowrap;">お気に入り表示:</span>
+      <select id="favAreaFilter" onchange="renderFavorites()" style="padding: 4px; font-size: 0.85rem;"></select>
+    </div>
+
     <div class="fav-tags" id="favContainer"></div>
 
     <div style="display: flex; gap: 6px; margin-top: 8px;">
-      <input type="text" id="newFavInput" placeholder="お気に入り店舗を追加" style="font-size:0.85rem;">
-      <button type="button" onclick="addFavoriteStore()" style="width:auto; margin:0; padding:6px 12px; font-size:0.85rem;">追加</button>
+      <input type="text" id="newFavAreaInput" placeholder="エリア(例:愛知県)" style="width: 35%; font-size: 0.85rem;">
+      <input type="text" id="newFavInput" placeholder="お気に入り店舗名" style="width: 65%; font-size: 0.85rem;">
+      <button type="button" onclick="addFavoriteStore()" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">追加</button>
     </div>
 
     <label>日時</label>
@@ -143,8 +150,15 @@
 
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
-    // 初期お気に入り店舗リストをご指定の具体的一覧に更新
-    let favorites = JSON.parse(localStorage.getItem('gasFavs') || '["EneJet戸崎町SS(光南工業)", "セルフィックス岐阜東(日商有田)", "D.D.セルフ北名古屋(モビリニア)"]');
+    
+    // エリア情報を含めた初期お気に入りリスト
+    const defaultFavs = [
+      { area: "愛知県", name: "EneJet戸崎町SS(光南工業)" },
+      { area: "愛知県", name: "D.D.セルフ北名古屋(モビリニア)" },
+      { area: "岐阜県", name: "セルフィックス岐阜東(日商有田)" }
+    ];
+    let favorites = JSON.parse(localStorage.getItem('gasFavsV2') || JSON.stringify(defaultFavs));
+
     let map, currentMarker;
     let historyMarkers = [];
     let chart;
@@ -170,6 +184,7 @@
       document.getElementById('surveyDate').value = now.toISOString().slice(0,16);
 
       initMap();
+      updateFavAreaDropdown();
       renderFavorites();
       updateStoreDropdowns();
       renderHistory();
@@ -297,34 +312,59 @@
       });
     }
 
+    function updateFavAreaDropdown() {
+      const areas = Array.from(new Set(favorites.map(f => f.area || "その他")));
+      const select = document.getElementById('favAreaFilter');
+      const currentVal = select.value;
+
+      let html = '<option value="ALL">すべてのエリア</option>';
+      areas.forEach(a => {
+        html += `<option value="${a}">${a}</option>`;
+      });
+      select.innerHTML = html;
+      select.value = areas.includes(currentVal) ? currentVal : 'ALL';
+    }
+
     function renderFavorites() {
+      const selectedArea = document.getElementById('favAreaFilter').value;
       const container = document.getElementById('favContainer');
       container.innerHTML = '';
-      favorites.forEach((fav, index) => {
+
+      const filtered = (selectedArea === 'ALL') 
+        ? favorites 
+        : favorites.filter(f => (f.area || "その他") === selectedArea);
+
+      filtered.forEach((fav) => {
+        const globalIndex = favorites.indexOf(fav);
         const tag = document.createElement('div');
         tag.className = 'fav-tag';
         tag.innerHTML = `
-          <span onclick="document.getElementById('storeName').value='${fav}'">${fav}</span>
-          <span class="fav-del" onclick="removeFavoriteStore(${index})">✕</span>
+          <span onclick="document.getElementById('storeName').value='${fav.name}'">${fav.name}</span>
+          <span class="fav-del" onclick="removeFavoriteStore(${globalIndex})">✕</span>
         `;
         container.appendChild(tag);
       });
     }
 
     function addFavoriteStore() {
-      const input = document.getElementById('newFavInput');
-      const val = input.value.trim();
-      if (val && !favorites.includes(val)) {
-        favorites.push(val);
-        localStorage.setItem('gasFavs', JSON.stringify(favorites));
+      const nameInput = document.getElementById('newFavInput');
+      const areaInput = document.getElementById('newFavAreaInput');
+      const nameVal = nameInput.value.trim();
+      const areaVal = areaInput.value.trim() || "その他";
+
+      if (nameVal && !favorites.some(f => f.name === nameVal)) {
+        favorites.push({ area: areaVal, name: nameVal });
+        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
+        updateFavAreaDropdown();
         renderFavorites();
-        input.value = '';
+        nameInput.value = '';
       }
     }
 
     function removeFavoriteStore(index) {
       favorites.splice(index, 1);
-      localStorage.setItem('gasFavs', JSON.stringify(favorites));
+      localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
+      updateFavAreaDropdown();
       renderFavorites();
     }
 
@@ -377,6 +417,7 @@
       updateMapMarkers();
     }
 
+    // 履歴テーブル描画（「編集」ボタン追加）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
@@ -394,10 +435,32 @@
           <td>${fmt(item.dieSign)} / ${fmt(item.dieMem)}</td>
           <td>${fmt(item.keroSign)} / ${fmt(item.keroMem)}</td>
           <td>${item.memo || '-'}</td>
-          <td><button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#dc3545;" onclick="deleteData(${item.id})">削除</button></td>
+          <td>
+            <div style="display:flex; gap:2px;">
+              <button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#ffc107; color:#000;" onclick="editStoreName(${item.id})">編集</button>
+              <button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#dc3545;" onclick="deleteData(${item.id})">削除</button>
+            </div>
+          </td>
         `;
         tbody.appendChild(tr);
       });
+    }
+
+    // 店舗名の修正関数
+    function editStoreName(id) {
+      const item = db.find(i => i.id === id);
+      if (!item) return;
+
+      const newStoreName = prompt("新しい店舗名（特約店名など）を入力してください:", item.store);
+      if (newStoreName !== null && newStoreName.trim() !== "") {
+        item.store = newStoreName.trim();
+        localStorage.setItem('gasData', JSON.stringify(db));
+        
+        updateStoreDropdowns();
+        renderHistory();
+        renderChart();
+        updateMapMarkers();
+      }
     }
 
     function fmt(val) {
