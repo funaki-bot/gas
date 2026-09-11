@@ -109,10 +109,14 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 価格推移グラフ -->
+  <!-- 価格推移グラフ（エリア別＆セルフィックス比較対応） -->
   <div class="card">
     <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
+      <div class="filter-row">
+        <span>エリア絞り込み:</span>
+        <select id="chartAreaFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
+      </div>
       <div class="filter-row">
         <span>店舗絞り込み:</span>
         <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
@@ -129,6 +133,12 @@
           <option value="dieMem">軽油 (会員)</option>
           <option value="keroMem">灯油 (会員)</option>
         </select>
+      </div>
+      <div class="filter-row" style="margin-top:4px;">
+        <label style="font-size:0.85rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; margin:0;">
+          <input type="checkbox" id="compareSelfixCheck" onchange="renderChart()" style="width:auto; margin:0;" checked>
+          セルフィックス（自社）の平均価格と比較表示する
+        </label>
       </div>
     </div>
     <canvas id="priceChart"></canvas>
@@ -250,6 +260,7 @@
       resetFormDateTime();
       initMap();
       updateFavAreaDropdown();
+      updateChartAreaDropdown();
       renderFavorites();
       updateStoreDropdowns();
       renderHistory();
@@ -352,7 +363,6 @@
       }
     }
 
-    // ドラッグ可能な赤ピン（既存調査店舗）の描画・更新機能
     function updateMapMarkers() {
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
@@ -363,7 +373,6 @@
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
       });
 
-      // 同一店舗の最新座標を判定するためユニーク店舗リストを使用
       const storeLatestMap = {};
       db.forEach(item => {
         if (item.lat && item.lng && !storeLatestMap[item.store]) {
@@ -393,7 +402,6 @@
 
         m.bindPopup(updatePopup(item.lat, item.lng));
 
-        // ドラッグ終了時にポップアップ内容を新しい座標で更新して開く
         m.on('dragend', function(e) {
           const newPos = e.target.getLatLng();
           m.setPopupContent(updatePopup(newPos.lat, newPos.lng)).openPopup();
@@ -403,7 +411,6 @@
       });
     }
 
-    // 店舗の全履歴データに対して新しい位置情報を一括更新保存する機能
     function updateStoreLocation(storeName, newLat, newLng) {
       let count = 0;
       db.forEach(item => {
@@ -434,6 +441,21 @@
       let html = '<option value="ALL">すべてのエリア</option>';
       areas.forEach(a => {
         html += `<option value="${a}">${a}</option>`;
+      });
+      select.innerHTML = html;
+      select.value = areas.includes(currentVal) ? currentVal : 'ALL';
+    }
+
+    // グラフ用エリアドロップダウンの更新
+    function updateChartAreaDropdown() {
+      const areas = Array.from(new Set(favorites.map(f => f.area || "その他")));
+      const select = document.getElementById('chartAreaFilter');
+      if (!select) return;
+
+      const currentVal = select.value;
+      let html = '<option value="ALL">すべてのエリア</option>';
+      areas.forEach(a => {
+        html += `<option value="${a}">${a}">${a}</option>`;
       });
       select.innerHTML = html;
       select.value = areas.includes(currentVal) ? currentVal : 'ALL';
@@ -470,6 +492,7 @@
         favorites.push({ area: areaVal, name: nameVal });
         localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
         updateFavAreaDropdown();
+        updateChartAreaDropdown();
         renderFavorites();
         nameInput.value = '';
       }
@@ -482,6 +505,7 @@
         favorites.splice(index, 1);
         localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
         updateFavAreaDropdown();
+        updateChartAreaDropdown();
         renderFavorites();
       }
     }
@@ -650,49 +674,118 @@
       }
     }
 
+    // エリア別絞り込み ＆ セルフィックス（自社）比較描画対応のグラフ生成関数
     function renderChart() {
+      const selectedArea = document.getElementById('chartAreaFilter').value;
       const selectedStore = document.getElementById('chartStoreFilter').value;
       const selectedFuel = document.getElementById('chartFuelFilter').value;
+      const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
       
-      let filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
-      filtered = [...filtered].reverse();
+      // お気に入りから「指定エリアの店舗名リスト」を取得
+      let areaStoreNames = [];
+      if (selectedArea !== 'ALL') {
+        areaStoreNames = favorites
+          .filter(f => (f.area || "その他") === selectedArea)
+          .map(f => f.name);
+      }
 
+      // エリア＆店舗の絞り込み処理
+      let targetData = db.filter(item => {
+        if (selectedArea !== 'ALL' && areaStoreNames.length > 0) {
+          if (!areaStoreNames.includes(item.store)) return false;
+        }
+        if (selectedStore !== 'ALL') {
+          if (item.store !== selectedStore) return false;
+        }
+        return true;
+      });
+
+      targetData = [...targetData].reverse();
+
+      // 日付ごとに価格データをグループ化（対象データ）
       const dateGrouped = {};
-      filtered.forEach(item => {
+      targetData.forEach(item => {
         const dateKey = item.date.slice(0, 10);
         const val = parseFloat(item[selectedFuel]);
         if (!isNaN(val)) {
-          if (!dateGrouped[dateKey]) {
-            dateGrouped[dateKey] = [];
-          }
+          if (!dateGrouped[dateKey]) dateGrouped[dateKey] = [];
           dateGrouped[dateKey].push(val);
         }
       });
 
-      const labels = Object.keys(dateGrouped).map(d => d.slice(5));
-      const chartData = Object.keys(dateGrouped).map(d => {
+      // セルフィックス店舗のデータを抽出（店舗名に「セルフィックス」含むもの）
+      const selfixData = db.filter(item => {
+        const isSelfix = item.store.includes('セルフィックス') || item.store.includes('Selfix');
+        if (!isSelfix) return false;
+        if (selectedArea !== 'ALL' && areaStoreNames.length > 0) {
+          if (!areaStoreNames.includes(item.store)) return false;
+        }
+        return true;
+      });
+
+      const selfixGrouped = {};
+      selfixData.forEach(item => {
+        const dateKey = item.date.slice(0, 10);
+        const val = parseFloat(item[selectedFuel]);
+        if (!isNaN(val)) {
+          if (!selfixGrouped[dateKey]) selfixGrouped[dateKey] = [];
+          selfixGrouped[dateKey].push(val);
+        }
+      });
+
+      // 日付軸（X軸）の結合とソート
+      const allDates = Array.from(new Set([...Object.keys(dateGrouped), ...Object.keys(selfixGrouped)])).sort();
+
+      const labels = allDates.map(d => d.slice(5));
+      const mainChartData = allDates.map(d => {
         const arr = dateGrouped[d];
+        if (!arr || arr.length === 0) return null;
         const sum = arr.reduce((acc, curr) => acc + curr, 0);
         return (sum / arr.length).toFixed(1);
       });
-      
+
+      const datasets = [];
+
+      // メインの折れ線（対象エリア/店舗の平均価格）
+      const mainLabel = (selectedStore !== 'ALL') ? selectedStore : (selectedArea !== 'ALL' ? `${selectedArea}の平均` : '全体の平均');
+      datasets.push({
+        label: `${mainLabel} - ${fuelNames[selectedFuel]}`,
+        data: mainChartData,
+        borderColor: fuelColors[selectedFuel],
+        backgroundColor: fuelColors[selectedFuel] + '22',
+        fill: !compareSelfix,
+        tension: 0.1,
+        spanGaps: true
+      });
+
+      // セルフィックス比較用の折れ線（比較チェックONかつデータ存在時）
+      if (compareSelfix && Object.keys(selfixGrouped).length > 0) {
+        const selfixChartData = allDates.map(d => {
+          const arr = selfixGrouped[d];
+          if (!arr || arr.length === 0) return null;
+          const sum = arr.reduce((acc, curr) => acc + curr, 0);
+          return (sum / arr.length).toFixed(1);
+        });
+
+        datasets.push({
+          label: `セルフィックス (自社平均)`,
+          data: selfixChartData,
+          borderColor: '#dc3545', // 赤色の強調線
+          borderWidth: 3,
+          backgroundColor: 'transparent',
+          pointRadius: 4,
+          tension: 0.1,
+          spanGaps: true
+        });
+      }
+
       if (chart) chart.destroy();
       chart = new Chart(ctx, {
         type: 'line',
         data: {
           labels: labels,
-          datasets: [
-            {
-              label: `${fuelNames[selectedFuel]} (日別平均)`,
-              data: chartData,
-              borderColor: fuelColors[selectedFuel],
-              backgroundColor: fuelColors[selectedFuel] + '22',
-              fill: true,
-              tension: 0.1,
-              spanGaps: true
-            }
-          ]
+          datasets: datasets
         },
         options: {
           responsive: true,
