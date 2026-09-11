@@ -34,6 +34,14 @@
     .sign-type-btn { flex: 1; padding: 8px 2px; font-size: 0.8rem; background: #e9ecef; color: #495057; border: 1px solid #ced4da; border-radius: 4px; margin-top: 0; font-weight: normal; }
     .sign-type-btn.active { background: #007bff; color: #fff; font-weight: bold; border-color: #0056b3; }
 
+    /* 前回価格比較パネルのスタイル */
+    .prev-price-box { grid-column: span 2; background: #eef2f5; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 0.8rem; }
+    .prev-price-item { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; border-bottom: 1px dashed #cbd5e1; }
+    .prev-price-item:last-child { border-bottom: none; }
+    .diff-up { color: #dc3545; font-weight: bold; }
+    .diff-down { color: #007bff; font-weight: bold; }
+    .diff-same { color: #6c757d; font-weight: bold; }
+
     /* 履歴テーブル用の高さ固定スクロールエリア */
     .table-container { max-height: 380px; overflow-y: auto; overflow-x: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 8px; }
 
@@ -58,13 +66,19 @@
   <!-- 2. 入力フォーム -->
   <div class="card">
     <label>店舗名</label>
-    <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
+    <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)" oninput="checkPreviousPrices()">
 
     <label>日時</label>
     <input type="datetime-local" id="surveyDate">
 
     <label>価格入力</label>
     <div class="grid">
+      <!-- 前回価格比較パネル（店舗名入力時に自動表示） -->
+      <div id="prevPricePanel" class="prev-price-box" style="display:none;">
+        <div style="font-weight:bold; margin-bottom:4px; color:#495057;" id="prevPriceTitle">💡 前回調査データ (----/--/--)</div>
+        <div id="prevPriceList"></div>
+      </div>
+
       <div class="price-section-title">【看板価格】</div>
       <!-- 看板種別選択ボタン -->
       <div class="sign-type-btns">
@@ -73,16 +87,40 @@
         <button type="button" class="sign-type-btn" onclick="selectSignType('最安値表示')">最安値表示</button>
       </div>
 
-      <input type="number" id="regSign" class="price-input" placeholder="レギュラー看板">
-      <input type="number" id="hiSign" class="price-input" placeholder="ハイオク看板">
-      <input type="number" id="dieSign" class="price-input" placeholder="軽油看板">
-      <input type="number" id="keroSign" class="price-input" placeholder="灯油看板">
+      <div>
+        <input type="number" id="regSign" class="price-input" placeholder="レギュラー看板" oninput="checkPreviousPrices()">
+        <div id="diff_regSign" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="hiSign" class="price-input" placeholder="ハイオク看板" oninput="checkPreviousPrices()">
+        <div id="diff_hiSign" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="dieSign" class="price-input" placeholder="軽油看板" oninput="checkPreviousPrices()">
+        <div id="diff_dieSign" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="keroSign" class="price-input" placeholder="灯油看板" oninput="checkPreviousPrices()">
+        <div id="diff_keroSign" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
 
       <div class="price-section-title">【会員価格】</div>
-      <input type="number" id="regMem" class="price-input" placeholder="レギュラー会員">
-      <input type="number" id="hiMem" class="price-input" placeholder="ハイオク会員">
-      <input type="number" id="dieMem" class="price-input" placeholder="軽油会員">
-      <input type="number" id="keroMem" class="price-input" placeholder="灯油会員">
+      <div>
+        <input type="number" id="regMem" class="price-input" placeholder="レギュラー会員" oninput="checkPreviousPrices()">
+        <div id="diff_regMem" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="hiMem" class="price-input" placeholder="ハイオク会員" oninput="checkPreviousPrices()">
+        <div id="diff_hiMem" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="dieMem" class="price-input" placeholder="軽油会員" oninput="checkPreviousPrices()">
+        <div id="diff_dieMem" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
+      <div>
+        <input type="number" id="keroMem" class="price-input" placeholder="灯油会員" oninput="checkPreviousPrices()">
+        <div id="diff_keroMem" style="font-size:0.75rem; margin-top:2px;"></div>
+      </div>
     </div>
 
     <label>メモ</label>
@@ -227,6 +265,8 @@
     let currentLat = null, currentLng = null;
     let selectedSignType = '一般';
 
+    const fuelKeys = ['regSign', 'hiSign', 'dieSign', 'keroSign', 'regMem', 'hiMem', 'dieMem', 'keroMem'];
+
     const fuelNames = {
       regSign: 'レギュラー(看板)', regMem: 'レギュラー(会員)',
       hiSign: 'ハイオク(看板)', hiMem: 'ハイオク(会員)',
@@ -283,6 +323,60 @@
           }
         });
       });
+    }
+
+    function checkPreviousPrices() {
+      const storeName = document.getElementById('storeName').value.trim();
+      const panel = document.getElementById('prevPricePanel');
+      const list = document.getElementById('prevPriceList');
+      const title = document.getElementById('prevPriceTitle');
+
+      fuelKeys.forEach(k => {
+        const el = document.getElementById(`diff_${k}`);
+        if (el) el.innerHTML = '';
+      });
+
+      if (!storeName) {
+        panel.style.display = 'none';
+        return;
+      }
+
+      let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
+      const lastEntry = sortedDb.find(i => i.store === storeName);
+
+      if (!lastEntry) {
+        panel.style.display = 'none';
+        return;
+      }
+
+      panel.style.display = 'block';
+      title.innerText = `💡 前回調査データ (${lastEntry.date.replace('T', ' ')}) [${lastEntry.signType || '一般'}]`;
+
+      let summaryHtml = '';
+
+      fuelKeys.forEach(key => {
+        const prevVal = parseFloat(lastEntry[key]);
+        const curInput = document.getElementById(key);
+        const curVal = curInput ? parseFloat(curInput.value) : NaN;
+        const diffEl = document.getElementById(`diff_${key}`);
+
+        if (!isNaN(prevVal)) {
+          summaryHtml += `<div class="prev-price-item"><span>${fuelNames[key]}:</span> <b>${prevVal}円</b></div>`;
+        }
+
+        if (!isNaN(prevVal) && !isNaN(curVal) && diffEl) {
+          const diff = curVal - prevVal;
+          if (diff > 0) {
+            diffEl.innerHTML = `<span class="diff-up">🔺 +${diff}円 (値上げ)</span>`;
+          } else if (diff < 0) {
+            diffEl.innerHTML = `<span class="diff-down">🔻 ${diff}円 (値下げ)</span>`;
+          } else {
+            diffEl.innerHTML = `<span class="diff-same">➔ ±0円 (据え置き)</span>`;
+          }
+        }
+      });
+
+      list.innerHTML = summaryHtml || '<div style="color:#666;">前回入力データなし</div>';
     }
 
     function initMap() {
@@ -412,6 +506,7 @@
     function selectStoreFromMap(storeName, lat, lng) {
       document.getElementById('storeName').value = storeName;
       setDraggableMarker(lat, lng);
+      checkPreviousPrices();
       map.closePopup();
     }
 
@@ -547,6 +642,7 @@
       document.getElementById('memo').value = '';
       selectSignType('一般');
       resetFormDateTime();
+      checkPreviousPrices();
 
       updateStoreDropdowns();
       renderHistory();
@@ -554,32 +650,61 @@
       updateMapMarkers();
     }
 
-    // 履歴データの描画処理（調査日時 date の降順ソートを適用）
+    // 履歴セルにおける「数値＋価格差矢印」のフォーマット関数
+    function fmtPriceDiff(val, prevVal) {
+      if (!val) return '-';
+      const cur = parseFloat(val);
+      const prev = parseFloat(prevVal);
+      if (isNaN(cur)) return '-';
+      if (isNaN(prev)) return `${cur}円`;
+
+      const diff = cur - prev;
+      if (diff > 0) {
+        return `${cur}円 <span class="diff-up">🔺+${diff}</span>`;
+      } else if (diff < 0) {
+        return `${cur}円 <span class="diff-down">🔻${diff}</span>`;
+      } else {
+        return `${cur}円 <span class="diff-same">➔0</span>`;
+      }
+    }
+
+    // 履歴データの描画（同じ店舗の直前調査データとの差額マークを生成）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
       tbody.innerHTML = '';
 
-      // 調査日時（date）の新しい順にソート
-      let sortedDb = [...db].sort((a, b) => {
-        if (a.date > b.date) return -1;
-        if (a.date < b.date) return 1;
-        return 0;
-      });
+      let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
 
       const filtered = (selectedStore === 'ALL') ? sortedDb : sortedDb.filter(i => i.store === selectedStore);
       const displayData = filtered.slice(0, 50);
 
       displayData.forEach(item => {
+        // 同一店舗で、対象のデータより日時が古い中で「最も新しい過去データ」を取得
+        const storeHistory = sortedDb.filter(i => i.store === item.store && i.date < item.date);
+        const prevItem = storeHistory.length > 0 ? storeHistory[0] : null;
+
+        const regSignHtml = fmtPriceDiff(item.regSign, prevItem ? prevItem.regSign : null);
+        const regMemHtml = fmtPriceDiff(item.regMem, prevItem ? prevItem.regMem : null);
+        
+        const hiSignHtml = fmtPriceDiff(item.hiSign, prevItem ? prevItem.hiSign : null);
+        const hiMemHtml = fmtPriceDiff(item.hiMem, prevItem ? prevItem.hiMem : null);
+
+        const dieSignHtml = fmtPriceDiff(item.dieSign, prevItem ? prevItem.dieSign : null);
+        const dieMemHtml = fmtPriceDiff(item.dieMem, prevItem ? prevItem.dieMem : null);
+
+        const keroSignHtml = fmtPriceDiff(item.keroSign, prevItem ? prevItem.keroSign : null);
+        const keroMemHtml = fmtPriceDiff(item.keroMem, prevItem ? prevItem.keroMem : null);
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${item.date.replace('T', ' ')}</td>
           <td><b>${item.store}</b></td>
           <td><span style="background:#e9ecef; padding:2px 6px; border-radius:4px; font-weight:bold;">${item.signType || '一般'}</span></td>
-          <td>${fmt(item.regSign)} / ${fmt(item.regMem)}</td>
-          <td>${fmt(item.hiSign)} / ${fmt(item.hiMem)}</td>
-          <td>${fmt(item.dieSign)} / ${fmt(item.dieMem)}</td>
-          <td>${fmt(item.keroSign)} / ${fmt(item.keroMem)}</td>
+          <td>${regSignHtml} / ${regMemHtml}</td>
+          <td>${hiSignHtml} / ${hiMemHtml}</td>
+          <td>${dieSignHtml} / ${dieMemHtml}</td>
+          <td>${keroSignHtml} / ${keroMemHtml}</td>
           <td>${item.memo || '-'}</td>
           <td>
             <div style="display:flex; gap:2px;">
@@ -642,10 +767,7 @@
       renderHistory();
       renderChart();
       updateMapMarkers();
-    }
-
-    function fmt(val) {
-      return val ? val + '円' : '-';
+      checkPreviousPrices();
     }
 
     function deleteData(id) {
@@ -656,6 +778,7 @@
         renderHistory();
         renderChart();
         updateMapMarkers();
+        checkPreviousPrices();
       }
     }
 
@@ -791,12 +914,7 @@
     function exportCSV() {
       if (db.length === 0) { alert('データがありません。'); return; }
       
-      // 出力CSVも調査日時の新しい順にソート
-      let sortedDb = [...db].sort((a, b) => {
-        if (a.date > b.date) return -1;
-        if (a.date < b.date) return 1;
-        return 0;
-      });
+      let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
 
       let csv = "\uFEFF日時,店舗名,看板種別,レギュラー看板,レギュラー会員,ハイオク看板,ハイオク会員,軽油看板,軽油会員,灯油看板,灯油会員,メモ,緯度,経度\n";
       sortedDb.forEach(i => {
