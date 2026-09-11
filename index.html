@@ -536,6 +536,20 @@
       renderChart();
     }
 
+    function buildSortedStoreOptions(stores) {
+      const selfixList = stores.filter(s => s.includes('セルフィックス') || s.includes('Selfix')).sort((a, b) => a.localeCompare(b, 'ja'));
+      const otherList = stores.filter(s => !s.includes('セルフィックス') && !s.includes('Selfix')).sort((a, b) => a.localeCompare(b, 'ja'));
+
+      let html = '';
+      if (selfixList.length > 0) {
+        selfixList.forEach(s => { html += `<option value="${s}">${s}</option>`; });
+      }
+      if (otherList.length > 0) {
+        otherList.forEach(s => { html += `<option value="${s}">${s}</option>`; });
+      }
+      return html;
+    }
+
     function updateStoreDropdowns() {
       const allStores = Array.from(new Set(db.map(i => i.store).filter(Boolean)));
       const selfixStores = allStores.filter(s => s.includes('セルフィックス') || s.includes('Selfix'));
@@ -544,7 +558,7 @@
       const currentSelfixBase = selfixBaseSelect ? selfixBaseSelect.value : 'ALL';
 
       let selfixOptionsHTML = '<option value="ALL">すべてのセルフィックス店舗</option>';
-      selfixStores.forEach(s => {
+      selfixStores.sort((a, b) => a.localeCompare(b, 'ja')).forEach(s => {
         selfixOptionsHTML += `<option value="${s}">${s}</option>`;
       });
       if (selfixBaseSelect) {
@@ -574,16 +588,12 @@
         return { store: sName, dist: dist };
       });
 
-      let filteredDistList = storeDistList;
+      let filteredStores = allStores;
       if (radiusKm !== null && baseLat && baseLng) {
-        filteredDistList = storeDistList.filter(item => item.dist !== null && item.dist <= radiusKm);
+        filteredStores = storeDistList
+          .filter(item => item.dist !== null && item.dist <= radiusKm)
+          .map(item => item.store);
       }
-
-      filteredDistList.sort((a, b) => {
-        if (a.dist === null) return 1;
-        if (b.dist === null) return -1;
-        return a.dist - b.dist;
-      });
 
       const chartSelect = document.getElementById('chartStoreFilter');
       const historySelect = document.getElementById('historyStoreFilter');
@@ -591,34 +601,20 @@
       const currentChartVal = chartSelect.value;
       const currentHistoryVal = historySelect.value;
 
+      // グラフ用ドロップダウン生成
       let chartOptionsHTML = '<option value="ALL">指定範囲内の全店舗 (平均)</option>';
       chartOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
+      chartOptionsHTML += buildSortedStoreOptions(filteredStores);
 
-      filteredDistList.forEach(item => {
-        const distLabel = (item.dist !== null) ? ` [${item.dist.toFixed(1)}km]` : '';
-        chartOptionsHTML += `<option value="${item.store}">${item.store}${distLabel}</option>`;
-      });
-
-      let historyOptionsHTML = '<option value="ALL">すべての店舗</option>';
-      historyOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
-      
-      let sortedAllStores = [...storeDistList].sort((a, b) => {
-        if (a.dist === null) return 1;
-        if (b.dist === null) return -1;
-        return a.dist - b.dist;
-      });
-
-      sortedAllStores.forEach(item => {
-        const distLabel = (item.dist !== null) ? ` [${item.dist.toFixed(1)}km]` : '';
-        historyOptionsHTML += `<option value="${item.store}">${item.store}${distLabel}</option>`;
-      });
+      // 履歴データ用ドロップダウン生成（集計用の「すべて/セルフィックスのみ」を除外し、純粋な店舗リストのみ構築）
+      let historyOptionsHTML = '<option value="ALL">すべての店舗データ</option>';
+      historyOptionsHTML += buildSortedStoreOptions(allStores);
 
       chartSelect.innerHTML = chartOptionsHTML;
       historySelect.innerHTML = historyOptionsHTML;
 
-      const validChartStoreList = filteredDistList.map(i => i.store);
-      chartSelect.value = (validChartStoreList.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
-      historySelect.value = (allStores.includes(currentHistoryVal) || currentHistoryVal === 'SELFIX_ONLY') ? currentHistoryVal : 'ALL';
+      chartSelect.value = (filteredStores.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
+      historySelect.value = allStores.includes(currentHistoryVal) ? currentHistoryVal : 'ALL';
     }
 
     function saveData() {
@@ -692,10 +688,9 @@
 
       let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
 
+      // 履歴テーブルの店舗絞り込み（個別店舗の選択のみ対応）
       const filtered = sortedDb.filter(item => {
-        if (selectedStore === 'SELFIX_ONLY') {
-          return item.store.includes('セルフィックス') || item.store.includes('Selfix');
-        } else if (selectedStore !== 'ALL') {
+        if (selectedStore !== 'ALL') {
           return item.store === selectedStore;
         }
         return true;
@@ -805,7 +800,6 @@
       }
     }
 
-    // グラフ生成処理（期間絞り込み対応）
     function renderChart() {
       const periodVal = document.getElementById('chartPeriodFilter') ? document.getElementById('chartPeriodFilter').value : '1';
       const selfixBaseStore = document.getElementById('chartSelfixBaseFilter') ? document.getElementById('chartSelfixBaseFilter').value : 'ALL';
@@ -815,7 +809,6 @@
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
 
-      // 期間絞り込み用基準日付の計算
       let minDateStr = null;
       if (periodVal !== 'ALL') {
         const now = new Date();
@@ -835,10 +828,8 @@
       const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
 
       let targetData = db.filter(item => {
-        // 期間フィルター適用
         if (minDateStr && item.date.slice(0, 10) < minDateStr) return false;
 
-        // 距離フィルター適用
         if (radiusKm !== null && baseLat && baseLng && item.lat && item.lng) {
           const dist = calcDistanceKm(baseLat, baseLng, item.lat, item.lng);
           if (dist > radiusKm) return false;
