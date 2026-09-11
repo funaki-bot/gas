@@ -11,6 +11,7 @@
   <script src="https://unpkg.com/leaflet-gesture-handling"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    html { scroll-behavior: smooth; }
     body { font-family: sans-serif; margin: 0; padding: 12px; background: #f4f6f8; color: #333; }
     h1 { font-size: 1.2rem; margin: 0 0 12px 0; text-align: center; }
     .card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -64,7 +65,7 @@
   </div>
 
   <!-- 2. 入力フォーム -->
-  <div class="card">
+  <div class="card" id="inputFormCard">
     <label>店舗名</label>
     <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)" oninput="checkPreviousPrices()">
 
@@ -75,7 +76,10 @@
     <div class="grid">
       <!-- 前回価格比較パネル（店舗名入力時に自動表示） -->
       <div id="prevPricePanel" class="prev-price-box" style="display:none;">
-        <div style="font-weight:bold; margin-bottom:4px; color:#495057;" id="prevPriceTitle">💡 前回調査データ (----/--/--)</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <div style="font-weight:bold; color:#495057;" id="prevPriceTitle">💡 前回調査データ</div>
+          <button type="button" onclick="copyPreviousPrices()" style="width:auto; margin:0; padding:4px 8px; font-size:0.75rem; background:#17a2b8;">📋 変化なし</button>
+        </div>
         <div id="prevPriceList"></div>
       </div>
 
@@ -273,6 +277,7 @@
     let chart;
     let currentLat = null, currentLng = null;
     let selectedSignType = '一般';
+    let currentLastEntry = null;
 
     const fuelKeys = ['regSign', 'hiSign', 'dieSign', 'keroSign', 'regMem', 'hiMem', 'dieMem', 'keroMem'];
 
@@ -347,6 +352,7 @@
 
       if (!storeName) {
         panel.style.display = 'none';
+        currentLastEntry = null;
         return;
       }
 
@@ -355,9 +361,11 @@
 
       if (!lastEntry) {
         panel.style.display = 'none';
+        currentLastEntry = null;
         return;
       }
 
+      currentLastEntry = lastEntry;
       panel.style.display = 'block';
       title.innerText = `💡 前回調査データ (${lastEntry.date.replace('T', ' ')}) [${lastEntry.signType || '一般'}]`;
 
@@ -386,6 +394,24 @@
       });
 
       list.innerHTML = summaryHtml || '<div style="color:#666;">前回入力データなし</div>';
+    }
+
+    function copyPreviousPrices() {
+      if (!currentLastEntry) return;
+
+      if (currentLastEntry.signType) {
+        selectSignType(currentLastEntry.signType);
+      }
+
+      fuelKeys.forEach(key => {
+        const val = currentLastEntry[key];
+        const input = document.getElementById(key);
+        if (input) {
+          input.value = (val !== undefined && val !== null) ? val : '';
+        }
+      });
+
+      checkPreviousPrices();
     }
 
     function initMap() {
@@ -468,7 +494,17 @@
       Object.values(storeLatestMap).forEach(item => {
         const m = L.marker([item.lat, item.lng], { icon: redIcon, draggable: true }).addTo(map);
         
-        const updatePopup = (lat, lng) => {
+        const getPopupContent = (lat, lng, isDragged = false) => {
+          let saveBtnHtml = '';
+          if (isDragged) {
+            saveBtnHtml = `
+              <button type="button" style="padding:4px 6px; font-size:0.75rem; background:#17a2b8; color:white; border:none; border-radius:4px; cursor:pointer;" 
+                onclick="updateStoreLocation('${item.store.replace(/'/g, "\\'")}', ${lat}, ${lng})">
+                📍 新しい位置を保存
+              </button>
+            `;
+          }
+
           return `
             <b>${item.store}</b><br>
             <span style="font-size:0.75rem; color:#666;">直近調査: ${item.date.slice(0,10)}</span><br>
@@ -477,19 +513,16 @@
                 onclick="selectStoreFromMap('${item.store.replace(/'/g, "\\'")}', ${lat}, ${lng})">
                 📍 店舗を選択
               </button>
-              <button type="button" style="padding:4px 6px; font-size:0.75rem; background:#17a2b8; color:white; border:none; border-radius:4px; cursor:pointer;" 
-                onclick="updateStoreLocation('${item.store.replace(/'/g, "\\'")}', ${lat}, ${lng})">
-                📍 新しい位置を保存
-              </button>
+              ${saveBtnHtml}
             </div>
           `;
         };
 
-        m.bindPopup(updatePopup(item.lat, item.lng));
+        m.bindPopup(getPopupContent(item.lat, item.lng, false));
 
         m.on('dragend', function(e) {
           const newPos = e.target.getLatLng();
-          m.setPopupContent(updatePopup(newPos.lat, newPos.lng)).openPopup();
+          m.setPopupContent(getPopupContent(newPos.lat, newPos.lng, true)).openPopup();
         });
 
         historyMarkers.push(m);
@@ -517,6 +550,11 @@
       setDraggableMarker(lat, lng);
       checkPreviousPrices();
       map.closePopup();
+
+      const card = document.getElementById('inputFormCard');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
 
     function calcDistanceKm(lat1, lng1, lat2, lng2) {
@@ -601,12 +639,10 @@
       const currentChartVal = chartSelect.value;
       const currentHistoryVal = historySelect.value;
 
-      // グラフ用ドロップダウン生成
       let chartOptionsHTML = '<option value="ALL">指定範囲内の全店舗 (平均)</option>';
       chartOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
       chartOptionsHTML += buildSortedStoreOptions(filteredStores);
 
-      // 履歴データ用ドロップダウン生成（集計用の「すべて/セルフィックスのみ」を除外し、純粋な店舗リストのみ構築）
       let historyOptionsHTML = '<option value="ALL">すべての店舗データ</option>';
       historyOptionsHTML += buildSortedStoreOptions(allStores);
 
@@ -688,7 +724,6 @@
 
       let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
 
-      // 履歴テーブルの店舗絞り込み（個別店舗の選択のみ対応）
       const filtered = sortedDb.filter(item => {
         if (selectedStore !== 'ALL') {
           return item.store === selectedStore;
