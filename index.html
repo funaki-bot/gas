@@ -33,6 +33,11 @@
     .filter-row span { font-size: 0.8rem; font-weight: bold; width: 70px; shrink: 0; }
     .price-section-title { font-size: 0.8rem; font-weight: bold; color: #007bff; margin-top: 8px; margin-bottom: 4px; grid-column: span 2; border-bottom: 1px solid #007bff; padding-bottom: 2px; }
 
+    /* 看板種別ボタンのスタイル */
+    .sign-type-btns { display: flex; gap: 4px; grid-column: span 2; margin-bottom: 4px; }
+    .sign-type-btn { flex: 1; padding: 8px 2px; font-size: 0.8rem; background: #e9ecef; color: #495057; border: 1px solid #ced4da; border-radius: 4px; margin-top: 0; font-weight: normal; }
+    .sign-type-btn.active { background: #007bff; color: #fff; font-weight: bold; border-color: #0056b3; }
+
     /* 履歴テーブル用の高さ固定スクロールエリア */
     .table-container { max-height: 380px; overflow-y: auto; overflow-x: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 8px; }
 
@@ -48,7 +53,7 @@
   <!-- 1. 位置確認マップ -->
   <div class="card">
     <div class="map-header">
-      <label style="margin:0;">位置確認マップ（青ピンはドラッグして位置調整）</label>
+      <label style="margin:0;">位置確認マップ（青・赤ピンはドラッグ移動可能）</label>
       <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">📍 現在地に移動</button>
     </div>
     <div id="map"></div>
@@ -79,6 +84,13 @@
     <label>価格入力</label>
     <div class="grid">
       <div class="price-section-title">【看板価格】</div>
+      <!-- 看板種別選択ボタン -->
+      <div class="sign-type-btns">
+        <button type="button" class="sign-type-btn active" onclick="selectSignType('一般')">一般</button>
+        <button type="button" class="sign-type-btn" onclick="selectSignType('会員/カード')">会員/カード</button>
+        <button type="button" class="sign-type-btn" onclick="selectSignType('最安値表示')">最安値表示</button>
+      </div>
+
       <input type="number" id="regSign" class="price-input" placeholder="レギュラー看板">
       <input type="number" id="hiSign" class="price-input" placeholder="ハイオク看板">
       <input type="number" id="dieSign" class="price-input" placeholder="軽油看板">
@@ -145,6 +157,7 @@
           <tr>
             <th>日時</th>
             <th>店舗</th>
+            <th>看板種別</th>
             <th>レギュラー<br>(看板/会員)</th>
             <th>ハイオク<br>(看板/会員)</th>
             <th>軽油<br>(看板/会員)</th>
@@ -166,6 +179,13 @@
       
       <label>店舗名</label>
       <input type="text" id="editStore">
+
+      <label>看板種別</label>
+      <select id="editSignType" style="padding:8px; font-size:0.9rem; margin-bottom:8px;">
+        <option value="一般">一般</option>
+        <option value="会員/カード">会員/カード</option>
+        <option value="最安値表示">最安値表示</option>
+      </select>
 
       <label>日時</label>
       <input type="datetime-local" id="editDate">
@@ -210,6 +230,7 @@
     let historyMarkers = [];
     let chart;
     let currentLat = null, currentLng = null;
+    let selectedSignType = '一般';
 
     const fuelNames = {
       regSign: 'レギュラー(看板)', regMem: 'レギュラー(会員)',
@@ -236,6 +257,18 @@
       autoSetCurrentLocation();
       setupEnterNavigation();
     };
+
+    function selectSignType(type) {
+      selectedSignType = type;
+      const btns = document.querySelectorAll('.sign-type-btn');
+      btns.forEach(btn => {
+        if (btn.innerText === type) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
 
     function resetFormDateTime() {
       const now = new Date();
@@ -319,6 +352,7 @@
       }
     }
 
+    // ドラッグ可能な赤ピン（既存調査店舗）の描画・更新機能
     function updateMapMarkers() {
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
@@ -329,22 +363,61 @@
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
       });
 
+      // 同一店舗の最新座標を判定するためユニーク店舗リストを使用
+      const storeLatestMap = {};
       db.forEach(item => {
-        if (item.lat && item.lng) {
-          const popupHtml = `
-            <b>${item.store}</b><br>
-            <span style="font-size:0.75rem; color:#666;">直近調査: ${item.date.slice(0,10)}</span><br>
-            <button type="button" style="margin-top:6px; padding:4px 8px; font-size:0.75rem; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;" 
-              onclick="selectStoreFromMap('${item.store.replace(/'/g, "\\'")}', ${item.lat}, ${item.lng})">
-              📍 この店舗を選択
-            </button>
-          `;
-          
-          const m = L.marker([item.lat, item.lng], { icon: redIcon }).addTo(map)
-            .bindPopup(popupHtml);
-          historyMarkers.push(m);
+        if (item.lat && item.lng && !storeLatestMap[item.store]) {
+          storeLatestMap[item.store] = item;
         }
       });
+
+      Object.values(storeLatestMap).forEach(item => {
+        const m = L.marker([item.lat, item.lng], { icon: redIcon, draggable: true }).addTo(map);
+        
+        const updatePopup = (lat, lng) => {
+          return `
+            <b>${item.store}</b><br>
+            <span style="font-size:0.75rem; color:#666;">直近調査: ${item.date.slice(0,10)}</span><br>
+            <div style="display:flex; gap:4px; margin-top:6px;">
+              <button type="button" style="padding:4px 6px; font-size:0.75rem; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;" 
+                onclick="selectStoreFromMap('${item.store.replace(/'/g, "\\'")}', ${lat}, ${lng})">
+                📍 店舗を選択
+              </button>
+              <button type="button" style="padding:4px 6px; font-size:0.75rem; background:#17a2b8; color:white; border:none; border-radius:4px; cursor:pointer;" 
+                onclick="updateStoreLocation('${item.store.replace(/'/g, "\\'")}', ${lat}, ${lng})">
+                📍 新しい位置を保存
+              </button>
+            </div>
+          `;
+        };
+
+        m.bindPopup(updatePopup(item.lat, item.lng));
+
+        // ドラッグ終了時にポップアップ内容を新しい座標で更新して開く
+        m.on('dragend', function(e) {
+          const newPos = e.target.getLatLng();
+          m.setPopupContent(updatePopup(newPos.lat, newPos.lng)).openPopup();
+        });
+
+        historyMarkers.push(m);
+      });
+    }
+
+    // 店舗の全履歴データに対して新しい位置情報を一括更新保存する機能
+    function updateStoreLocation(storeName, newLat, newLng) {
+      let count = 0;
+      db.forEach(item => {
+        if (item.store === storeName) {
+          item.lat = newLat;
+          item.lng = newLng;
+          count++;
+        }
+      });
+
+      localStorage.setItem('gasData', JSON.stringify(db));
+      alert(`「${storeName}」の位置情報（${count}件）を更新しました！`);
+      map.closePopup();
+      updateMapMarkers();
     }
 
     function selectStoreFromMap(storeName, lat, lng) {
@@ -443,6 +516,7 @@
         id: Date.now(),
         date: document.getElementById('surveyDate').value,
         store: document.getElementById('storeName').value || '未設定店舗',
+        signType: selectedSignType,
         regSign: document.getElementById('regSign').value,
         regMem: document.getElementById('regMem').value,
         hiSign: document.getElementById('hiSign').value,
@@ -470,6 +544,7 @@
       document.getElementById('storeName').value = '';
       document.querySelectorAll('.price-input').forEach(input => input.value = '');
       document.getElementById('memo').value = '';
+      selectSignType('一般');
       resetFormDateTime();
 
       updateStoreDropdowns();
@@ -491,6 +566,7 @@
         tr.innerHTML = `
           <td>${item.date.replace('T', ' ')}</td>
           <td><b>${item.store}</b></td>
+          <td><span style="background:#e9ecef; padding:2px 6px; border-radius:4px; font-weight:bold;">${item.signType || '一般'}</span></td>
           <td>${fmt(item.regSign)} / ${fmt(item.regMem)}</td>
           <td>${fmt(item.hiSign)} / ${fmt(item.hiMem)}</td>
           <td>${fmt(item.dieSign)} / ${fmt(item.dieMem)}</td>
@@ -513,6 +589,7 @@
 
       document.getElementById('editId').value = item.id;
       document.getElementById('editStore').value = item.store || '';
+      document.getElementById('editSignType').value = item.signType || '一般';
       document.getElementById('editDate').value = item.date || '';
       document.getElementById('editRegSign').value = item.regSign || '';
       document.getElementById('editHiSign').value = item.hiSign || '';
@@ -537,6 +614,7 @@
       if (!item) return;
 
       item.store = document.getElementById('editStore').value || '未設定店舗';
+      item.signType = document.getElementById('editSignType').value;
       item.date = document.getElementById('editDate').value;
       item.regSign = document.getElementById('editRegSign').value;
       item.hiSign = document.getElementById('editHiSign').value;
@@ -628,9 +706,9 @@
 
     function exportCSV() {
       if (db.length === 0) { alert('データがありません。'); return; }
-      let csv = "\uFEFF日時,店舗名,レギュラー看板,レギュラー会員,ハイオク看板,ハイオク会員,軽油看板,軽油会員,灯油看板,灯油会員,メモ,緯度,経度\n";
+      let csv = "\uFEFF日時,店舗名,看板種別,レギュラー看板,レギュラー会員,ハイオク看板,ハイオク会員,軽油看板,軽油会員,灯油看板,灯油会員,メモ,緯度,経度\n";
       db.forEach(i => {
-        csv += `"${i.date}","${i.store}","${i.regSign}","${i.regMem}","${i.hiSign}","${i.hiMem}","${i.dieSign}","${i.dieMem}","${i.keroSign}","${i.keroMem}","${i.memo}","${i.lat||''}","${i.lng||''}"\n`;
+        csv += `"${i.date}","${i.store}","${i.signType||'一般'}","${i.regSign}","${i.regMem}","${i.hiSign}","${i.hiMem}","${i.dieSign}","${i.dieMem}","${i.keroSign}","${i.keroMem}","${i.memo}","${i.lat||''}","${i.lng||''}"\n`;
       });
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
