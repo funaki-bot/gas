@@ -650,7 +650,7 @@
       updateMapMarkers();
     }
 
-    // 履歴セルにおける「数値＋価格差矢印」のフォーマット関数
+    // 履歴セルにおける「変化があった場合のみ矢印表示（数字・マークなし）」のフォーマット関数
     function fmtPriceDiff(val, prevVal) {
       if (!val) return '-';
       const cur = parseFloat(val);
@@ -660,15 +660,14 @@
 
       const diff = cur - prev;
       if (diff > 0) {
-        return `${cur}円 <span class="diff-up">🔺+${diff}</span>`;
+        return `${cur}円 <span class="diff-up">🔺</span>`;
       } else if (diff < 0) {
-        return `${cur}円 <span class="diff-down">🔻${diff}</span>`;
+        return `${cur}円 <span class="diff-down">🔻</span>`;
       } else {
-        return `${cur}円 <span class="diff-same">➔0</span>`;
+        return `${cur}円`; // 変化なし（据え置き）はマーク表示なし
       }
     }
 
-    // 履歴データの描画（同じ店舗の直前調査データとの差額マークを生成）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
@@ -680,7 +679,6 @@
       const displayData = filtered.slice(0, 50);
 
       displayData.forEach(item => {
-        // 同一店舗で、対象のデータより日時が古い中で「最も新しい過去データ」を取得
         const storeHistory = sortedDb.filter(i => i.store === item.store && i.date < item.date);
         const prevItem = storeHistory.length > 0 ? storeHistory[0] : null;
 
