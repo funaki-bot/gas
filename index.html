@@ -42,7 +42,7 @@
 
   <h1>⛽ SS燃油価格調査</h1>
 
-  <!-- 1. 最上部に配置した位置確認マップ -->
+  <!-- 1. 位置確認マップ -->
   <div class="card">
     <div class="map-header">
       <label style="margin:0;">位置確認マップ (⛽ピンタップで店舗選択)</label>
@@ -54,7 +54,7 @@
   <!-- 2. 入力フォーム -->
   <div class="card">
     <label>店舗名</label>
-    <input type="text" id="storeName" placeholder="地図の⛽タップまたは入力">
+    <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
     
     <!-- 都道府県・エリア絞り込みドロップダウン -->
     <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
@@ -266,14 +266,47 @@
       }).addTo(map);
 
       updateMapMarkers();
-
-      // 地図の移動停止時に周辺SSを自動取得してピン表示
       map.on('moveend', fetchNearbySS);
     }
 
-    // 周辺ガソリンスタンドの自動読み込み＆ピン表示（緑色の⛽アイコン）
+    // ブランド名・支店名・特約店名を組み合わせた詳細店舗名の構築関数
+    function buildDetailedSSName(tags) {
+      if (!tags) return "SS店舗";
+
+      const name = tags.name || tags['name:ja'] || "";
+      const brand = tags.brand || tags['brand:ja'] || "";
+      const ref = tags.ref || tags['branch'] || tags['ref:ja'] || "";
+      const operator = tags.operator || tags.company || tags['operator:ja'] || "";
+
+      let fullName = "";
+
+      // 1. 完全な名前タグが存在する場合
+      if (name) {
+        fullName = name;
+      } 
+      // 2. brand と ref (支店名) がある場合
+      else if (brand && ref) {
+        fullName = `${brand} ${ref}`;
+      } 
+      // 3. brand のみの場合
+      else if (brand) {
+        fullName = `${brand} SS`;
+      } 
+      else {
+        fullName = "SS店舗";
+      }
+
+      // 特約店・運営会社名 (operator) をカッコ書きで追加
+      if (operator && !fullName.includes(operator)) {
+        fullName = `${fullName}(${operator})`;
+      }
+
+      return fullName;
+    }
+
+    // 周辺ガソリンスタンドの自動読み込み＆詳細店舗名の表示
     function fetchNearbySS() {
-      if (map.getZoom() < 12) return; // 広域すぎる場合はスキップ
+      if (map.getZoom() < 12) return;
 
       const bounds = map.getBounds();
       const south = bounds.getSouth();
@@ -301,14 +334,7 @@
               const elLng = el.lon || (el.center && el.center.lon);
               
               if (elLat && elLng && el.tags) {
-                const tags = el.tags;
-                const rawName = tags.name || tags.brand || tags['name:ja'] || "SS店舗";
-                const operator = tags.operator || tags.company || tags['operator:ja'] || "";
-                
-                let fullName = rawName;
-                if (operator && !rawName.includes(operator)) {
-                  fullName = `${rawName}(${operator})`;
-                }
+                const fullName = buildDetailedSSName(el.tags);
 
                 const popupHtml = `
                   <b>⛽ ${fullName}</b><br>
@@ -378,7 +404,6 @@
       }
     }
 
-    // 既存調査店舗（赤ピン）の表示
     function updateMapMarkers() {
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
