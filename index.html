@@ -76,11 +76,17 @@
       </div>
     </div>
 
-    <!-- お気に入り新規追加エリア -->
-    <div style="display: flex; gap: 6px; margin-top: 8px;">
-      <input type="text" id="newFavAreaInput" placeholder="エリア(例:愛知県)" style="width: 35%; font-size: 0.85rem;">
-      <input type="text" id="newFavInput" placeholder="お気に入り店舗名" style="width: 65%; font-size: 0.85rem;">
-      <button type="button" onclick="addFavoriteStore()" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">追加</button>
+    <!-- お気に入り新規追加エリア（普段は隠せるアコーディオン） -->
+    <div style="margin-top: 6px;">
+      <button type="button" onclick="toggleFavAddArea()" style="background: none; color: #6c757d; border: none; font-size: 0.75rem; text-decoration: underline; padding: 2px 0; margin-top: 2px; text-align: left; width: auto; cursor: pointer;">
+        ➕ お気に入り店舗を新規登録
+      </button>
+      
+      <div id="favAddArea" style="display: none; gap: 6px; margin-top: 6px; background: #fff; padding: 8px; border: 1px dashed #ced4da; border-radius: 6px;">
+        <input type="text" id="newFavAreaInput" placeholder="エリア(例:愛知県)" style="width: 35%; font-size: 0.85rem;">
+        <input type="text" id="newFavInput" placeholder="お気に入り店舗名" style="width: 65%; font-size: 0.85rem;">
+        <button type="button" onclick="addFavoriteStore()" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">追加</button>
+      </div>
     </div>
 
     <label>日時</label>
@@ -274,6 +280,16 @@
       setupEnterNavigation();
     };
 
+    // 新規登録エリアの開閉切り替え
+    function toggleFavAddArea() {
+      const area = document.getElementById('favAddArea');
+      if (area.style.display === 'none' || area.style.display === '') {
+        area.style.display = 'flex';
+      } else {
+        area.style.display = 'none';
+      }
+    }
+
     function selectSignType(type) {
       selectedSignType = type;
       const btns = document.querySelectorAll('.sign-type-btn');
@@ -465,7 +481,6 @@
       select.value = areas.includes(currentVal) ? currentVal : 'ALL';
     }
 
-    // お気に入りドロップダウンの描画
     function renderFavorites() {
       const selectedArea = document.getElementById('favAreaFilter').value;
       const select = document.getElementById('favStoreSelect');
@@ -482,7 +497,6 @@
       select.innerHTML = html;
     }
 
-    // ドロップダウン選択時に入力欄へセット
     function applySelectedFavStore() {
       const select = document.getElementById('favStoreSelect');
       const val = select.value;
@@ -494,7 +508,6 @@
       }
     }
 
-    // 選択されたお気に入り店舗の削除処理
     function removeSelectedFavStore() {
       const select = document.getElementById('favStoreSelect');
       const val = select.value;
@@ -529,6 +542,7 @@
         updateChartAreaDropdown();
         renderFavorites();
         nameInput.value = '';
+        toggleFavAddArea(); // 追加後は自動で閉じる
       }
     }
 
