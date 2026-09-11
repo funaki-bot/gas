@@ -31,18 +31,30 @@
     .filter-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
     .filter-row { display: flex; align-items: center; gap: 8px; }
     .filter-row span { font-size: 0.8rem; font-weight: bold; width: 70px; shrink: 0; }
+    .price-section-title { font-size: 0.8rem; font-weight: bold; color: #007bff; margin-top: 8px; margin-bottom: 4px; grid-column: span 2; border-bottom: 1px solid #007bff; padding-bottom: 2px; }
+
+    /* モーダルダイアログのスタイル */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; }
+    .modal-content { background: #fff; width: 92%; max-width: 500px; max-height: 90vh; overflow-y: auto; padding: 16px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
   </style>
 </head>
 <body>
 
   <h1>⛽ SS燃油価格調査</h1>
 
-  <!-- 入力フォーム -->
+  <!-- 1. 最上部に配置した位置確認マップ -->
   <div class="card">
-    <button type="button" class="btn-gps" onclick="getGPSLocation()">📍 現在地・店舗名を自動セット</button>
-    
+    <div class="map-header">
+      <label style="margin:0;">位置確認マップ (⛽ピンタップで店舗選択)</label>
+      <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">📍 現在地に移動</button>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <!-- 2. 入力フォーム -->
+  <div class="card">
     <label>店舗名</label>
-    <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
+    <input type="text" id="storeName" placeholder="地図の⛽タップまたは入力">
     
     <!-- 都道府県・エリア絞り込みドロップダウン -->
     <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
@@ -61,16 +73,19 @@
     <label>日時</label>
     <input type="datetime-local" id="surveyDate">
 
-    <label>価格（看板 / 会員）</label>
+    <label>価格入力</label>
     <div class="grid">
-      <input type="number" id="regSign" placeholder="レギュラー看板">
-      <input type="number" id="regMem" placeholder="レギュラー会員">
-      <input type="number" id="hiSign" placeholder="ハイオク看板">
-      <input type="number" id="hiMem" placeholder="ハイオク会員">
-      <input type="number" id="dieSign" placeholder="軽油看板">
-      <input type="number" id="dieMem" placeholder="軽油会員">
-      <input type="number" id="keroSign" placeholder="灯油看板">
-      <input type="number" id="keroMem" placeholder="灯油会員">
+      <div class="price-section-title">【看板価格】</div>
+      <input type="number" id="regSign" class="price-input" placeholder="レギュラー看板">
+      <input type="number" id="hiSign" class="price-input" placeholder="ハイオク看板">
+      <input type="number" id="dieSign" class="price-input" placeholder="軽油看板">
+      <input type="number" id="keroSign" class="price-input" placeholder="灯油看板">
+
+      <div class="price-section-title">【会員価格】</div>
+      <input type="number" id="regMem" class="price-input" placeholder="レギュラー会員">
+      <input type="number" id="hiMem" class="price-input" placeholder="ハイオク会員">
+      <input type="number" id="dieMem" class="price-input" placeholder="軽油会員">
+      <input type="number" id="keroMem" class="price-input" placeholder="灯油会員">
     </div>
 
     <label>メモ</label>
@@ -79,18 +94,9 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 位置確認マップ -->
-  <div class="card">
-    <div class="map-header">
-      <label style="margin:0;">位置確認マップ</label>
-      <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#6c757d;">📍 現在地に移動</button>
-    </div>
-    <div id="map"></div>
-  </div>
-
   <!-- 価格推移グラフ -->
   <div class="card">
-    <label>価格推移グラフ</label>
+    <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
       <div class="filter-row">
         <span>店舗絞り込み:</span>
@@ -100,12 +106,12 @@
         <span>油種選択:</span>
         <select id="chartFuelFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;">
           <option value="regSign">レギュラー (看板)</option>
-          <option value="regMem">レギュラー (会員)</option>
           <option value="hiSign">ハイオク (看板)</option>
-          <option value="hiMem">ハイオク (会員)</option>
           <option value="dieSign">軽油 (看板)</option>
-          <option value="dieMem">軽油 (会員)</option>
           <option value="keroSign">灯油 (看板)</option>
+          <option value="regMem">レギュラー (会員)</option>
+          <option value="hiMem">ハイオク (会員)</option>
+          <option value="dieMem">軽油 (会員)</option>
           <option value="keroMem">灯油 (会員)</option>
         </select>
       </div>
@@ -148,6 +154,44 @@
     </div>
   </div>
 
+  <!-- 全項目編集用モーダル画面 -->
+  <div id="editModal" class="modal-overlay">
+    <div class="modal-content">
+      <h3 style="margin-top:0; font-size:1.1rem; text-align:center;">履歴データの編集</h3>
+      <input type="hidden" id="editId">
+      
+      <label>店舗名</label>
+      <input type="text" id="editStore">
+
+      <label>日時</label>
+      <input type="datetime-local" id="editDate">
+
+      <label>看板価格</label>
+      <div class="grid">
+        <input type="number" id="editRegSign" placeholder="レギュラー看板">
+        <input type="number" id="editHiSign" placeholder="ハイオク看板">
+        <input type="number" id="editDieSign" placeholder="軽油看板">
+        <input type="number" id="editKeroSign" placeholder="灯油看板">
+      </div>
+
+      <label>会員価格</label>
+      <div class="grid">
+        <input type="number" id="editRegMem" placeholder="レギュラー会員">
+        <input type="number" id="editHiMem" placeholder="ハイオク会員">
+        <input type="number" id="editDieMem" placeholder="軽油会員">
+        <input type="number" id="editKeroMem" placeholder="灯油会員">
+      </div>
+
+      <label>メモ</label>
+      <textarea id="editMemo" rows="2"></textarea>
+
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button type="button" onclick="updateEditedData()" style="background:#28a745; margin:0;">更新保存</button>
+        <button type="button" onclick="closeEditModal()" style="background:#6c757d; margin:0;">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
     
@@ -160,6 +204,7 @@
 
     let map, currentMarker;
     let historyMarkers = [];
+    let nearbySSMarkers = [];
     let chart;
     let currentLat = null, currentLng = null;
 
@@ -178,23 +223,40 @@
     };
 
     window.onload = function() {
-      const now = new Date();
-      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-      document.getElementById('surveyDate').value = now.toISOString().slice(0,16);
-
+      resetFormDateTime();
       initMap();
       updateFavAreaDropdown();
       renderFavorites();
       updateStoreDropdowns();
       renderHistory();
       renderChart();
-
-      // 起動直後に自動で現在地を取得して地図の中心に移動させる
       autoSetCurrentLocation();
+      setupEnterNavigation();
     };
 
+    function resetFormDateTime() {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      document.getElementById('surveyDate').value = now.toISOString().slice(0,16);
+    }
+
+    function setupEnterNavigation() {
+      const inputs = document.querySelectorAll('.price-input');
+      inputs.forEach((input, index) => {
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (index < inputs.length - 1) {
+              inputs[index + 1].focus();
+            } else {
+              document.getElementById('memo').focus();
+            }
+          }
+        });
+      });
+    }
+
     function initMap() {
-      // 一時的なデフォルト（GPS取得までの仮表示用）
       map = L.map('map', {
         gestureHandling: true
       }).setView([35.1815, 136.9064], 12);
@@ -204,118 +266,119 @@
       }).addTo(map);
 
       updateMapMarkers();
+
+      // 地図の移動停止時に周辺SSを自動取得してピン表示
+      map.on('moveend', fetchNearbySS);
     }
 
-    // 起動時の自動現在地設定関数（通知や店舗名入力は行わず、地図移動のみを静かに実施）
+    // 周辺ガソリンスタンドの自動読み込み＆ピン表示（緑色の⛽アイコン）
+    function fetchNearbySS() {
+      if (map.getZoom() < 12) return; // 広域すぎる場合はスキップ
+
+      const bounds = map.getBounds();
+      const south = bounds.getSouth();
+      const west = bounds.getWest();
+      const north = bounds.getNorth();
+      const east = bounds.getEast();
+
+      const query = `[out:json];(node(${south},${west},${north},${east})[amenity=fuel];way(${south},${west},${north},${east})[amenity=fuel];);out center;`;
+      
+      fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
+        .then(res => res.json())
+        .then(data => {
+          nearbySSMarkers.forEach(m => map.removeLayer(m));
+          nearbySSMarkers = [];
+
+          const greenIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+          });
+
+          if (data && data.elements) {
+            data.elements.forEach(el => {
+              const elLat = el.lat || (el.center && el.center.lat);
+              const elLng = el.lon || (el.center && el.center.lon);
+              
+              if (elLat && elLng && el.tags) {
+                const tags = el.tags;
+                const rawName = tags.name || tags.brand || tags['name:ja'] || "SS店舗";
+                const operator = tags.operator || tags.company || tags['operator:ja'] || "";
+                
+                let fullName = rawName;
+                if (operator && !rawName.includes(operator)) {
+                  fullName = `${rawName}(${operator})`;
+                }
+
+                const popupHtml = `
+                  <b>⛽ ${fullName}</b><br>
+                  <button type="button" style="margin-top:6px; padding:4px 8px; font-size:0.75rem; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;" 
+                    onclick="selectStoreFromMap('${fullName.replace(/'/g, "\\'")}', ${elLat}, ${elLng})">
+                    📍 この店舗を選択
+                  </button>
+                `;
+
+                const m = L.marker([elLat, elLng], { icon: greenIcon }).addTo(map)
+                  .bindPopup(popupHtml);
+                nearbySSMarkers.push(m);
+              }
+            });
+          }
+        })
+        .catch(() => {});
+    }
+
+    function setDraggableMarker(lat, lng) {
+      currentLat = lat;
+      currentLng = lng;
+      
+      if (currentMarker) {
+        currentMarker.setLatLng([lat, lng]);
+      } else {
+        currentMarker = L.marker([lat, lng], { draggable: true }).addTo(map)
+          .bindPopup("ドラッグして位置調整可能").openPopup();
+
+        currentMarker.on('dragend', function(event) {
+          const position = event.target.getLatLng();
+          currentLat = position.lat;
+          currentLng = position.lng;
+        });
+      }
+    }
+
     function autoSetCurrentLocation() {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            currentLat = position.coords.latitude;
-            currentLng = position.coords.longitude;
-            
-            map.setView([currentLat, currentLng], 15);
-            if (currentMarker) map.removeLayer(currentMarker);
-            currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            map.setView([lat, lng], 15);
+            setDraggableMarker(lat, lng);
+            fetchNearbySS();
           },
-          (err) => {
-            // 自動取得不可時のサイレントフォールバック
-          },
+          () => {},
           { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
       }
     }
 
     function recenterMap() {
-      if (currentLat && currentLng) {
-        map.setView([currentLat, currentLng], 16);
-      } else {
-        getGPSLocation();
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            map.setView([lat, lng], 16);
+            setDraggableMarker(lat, lng);
+            fetchNearbySS();
+          },
+          (err) => { alert("位置情報を取得できませんでした: " + err.message); },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
       }
     }
 
-    function getGPSLocation() {
-      if (!navigator.geolocation) {
-        alert("位置情報機能に対応していません。");
-        return;
-      }
-
-      document.getElementById('storeName').placeholder = "周辺のガソリンスタンド・特約店を検索中...";
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          currentLat = position.coords.latitude;
-          currentLng = position.coords.longitude;
-          
-          map.setView([currentLat, currentLng], 16);
-          if (currentMarker) map.removeLayer(currentMarker);
-          currentMarker = L.marker([currentLat, currentLng]).addTo(map).bindPopup("現在地").openPopup();
-
-          const query = `[out:json];(node(around:3000,${currentLat},${currentLng})[amenity=fuel];way(around:3000,${currentLat},${currentLng})[amenity=fuel];);out center;`;
-          fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
-            .then(res => res.json())
-            .then(data => {
-              if (data && data.elements && data.elements.length > 0) {
-                let closest = null;
-                let minDist = Infinity;
-                
-                data.elements.forEach(el => {
-                  const elLat = el.lat || (el.center && el.center.lat);
-                  const elLng = el.lon || (el.center && el.center.lon);
-                  if (elLat && elLng) {
-                    const dist = Math.hypot(elLat - currentLat, elLng - currentLng);
-                    if (dist < minDist) {
-                      minDist = dist;
-                      closest = el;
-                    }
-                  }
-                });
-
-                if (closest && closest.tags) {
-                  const tags = closest.tags;
-                  const rawName = tags.name || tags.brand || tags['name:ja'] || "SS店舗";
-                  const operator = tags.operator || tags.company || tags['operator:ja'] || "";
-                  
-                  let fullName = rawName;
-                  if (operator && !rawName.includes(operator)) {
-                    fullName = `${rawName}(${operator})`;
-                  }
-                  
-                  document.getElementById('storeName').value = fullName;
-                } else {
-                  fallbackAddress();
-                }
-              } else {
-                fallbackAddress();
-              }
-            })
-            .catch(() => {
-              fallbackAddress();
-            });
-        },
-        (err) => {
-          alert("位置情報を取得できませんでした: " + err.message);
-          document.getElementById('storeName').placeholder = "例: EneJet戸崎町SS(光南工業)";
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    }
-
-    function fallbackAddress() {
-      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLng}`)
-        .then(r => r.json())
-        .then(d => {
-          if (d && d.display_name) {
-            document.getElementById('storeName').value = d.display_name.split(',')[0];
-          } else {
-            document.getElementById('storeName').value = "現在地周辺店舗";
-          }
-        })
-        .catch(() => {
-          document.getElementById('storeName').value = "現在地周辺店舗";
-        });
-    }
-
+    // 既存調査店舗（赤ピン）の表示
     function updateMapMarkers() {
       historyMarkers.forEach(m => map.removeLayer(m));
       historyMarkers = [];
@@ -328,11 +391,26 @@
 
       db.forEach(item => {
         if (item.lat && item.lng) {
+          const popupHtml = `
+            <b>${item.store}</b><br>
+            <span style="font-size:0.75rem; color:#666;">直近調査: ${item.date.slice(0,10)}</span><br>
+            <button type="button" style="margin-top:6px; padding:4px 8px; font-size:0.75rem; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;" 
+              onclick="selectStoreFromMap('${item.store.replace(/'/g, "\\'")}', ${item.lat}, ${item.lng})">
+              📍 この店舗を選択
+            </button>
+          `;
+          
           const m = L.marker([item.lat, item.lng], { icon: redIcon }).addTo(map)
-            .bindPopup(`<b>${item.store}</b><br>${item.date.slice(0,10)} 調査実績あり`);
+            .bindPopup(popupHtml);
           historyMarkers.push(m);
         }
       });
+    }
+
+    function selectStoreFromMap(storeName, lat, lng) {
+      document.getElementById('storeName').value = storeName;
+      setDraggableMarker(lat, lng);
+      map.closePopup();
     }
 
     function updateFavAreaDropdown() {
@@ -413,6 +491,10 @@
     }
 
     function saveData() {
+      executeSave(currentLat, currentLng);
+    }
+
+    function executeSave(lat, lng) {
       const entry = {
         id: Date.now(),
         date: document.getElementById('surveyDate').value,
@@ -426,14 +508,20 @@
         keroSign: document.getElementById('keroSign').value,
         keroMem: document.getElementById('keroMem').value,
         memo: document.getElementById('memo').value,
-        lat: currentLat,
-        lng: currentLng
+        lat: lat,
+        lng: lng
       };
 
       db.unshift(entry);
       localStorage.setItem('gasData', JSON.stringify(db));
       
       alert('保存しました！');
+
+      document.getElementById('storeName').value = '';
+      document.querySelectorAll('.price-input').forEach(input => input.value = '');
+      document.getElementById('memo').value = '';
+      resetFormDateTime();
+
       updateStoreDropdowns();
       renderHistory();
       renderChart();
@@ -459,7 +547,7 @@
           <td>${item.memo || '-'}</td>
           <td>
             <div style="display:flex; gap:2px;">
-              <button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#ffc107; color:#000;" onclick="editStoreName(${item.id})">編集</button>
+              <button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#ffc107; color:#000;" onclick="openEditModal(${item.id})">編集</button>
               <button style="margin:0; padding:2px 6px; font-size:0.75rem; background:#dc3545;" onclick="deleteData(${item.id})">削除</button>
             </div>
           </td>
@@ -468,20 +556,54 @@
       });
     }
 
-    function editStoreName(id) {
+    function openEditModal(id) {
       const item = db.find(i => i.id === id);
       if (!item) return;
 
-      const newStoreName = prompt("新しい店舗名（特約店名など）を入力してください:", item.store);
-      if (newStoreName !== null && newStoreName.trim() !== "") {
-        item.store = newStoreName.trim();
-        localStorage.setItem('gasData', JSON.stringify(db));
-        
-        updateStoreDropdowns();
-        renderHistory();
-        renderChart();
-        updateMapMarkers();
-      }
+      document.getElementById('editId').value = item.id;
+      document.getElementById('editStore').value = item.store || '';
+      document.getElementById('editDate').value = item.date || '';
+      document.getElementById('editRegSign').value = item.regSign || '';
+      document.getElementById('editHiSign').value = item.hiSign || '';
+      document.getElementById('editDieSign').value = item.dieSign || '';
+      document.getElementById('editKeroSign').value = item.keroSign || '';
+      document.getElementById('editRegMem').value = item.regMem || '';
+      document.getElementById('editHiMem').value = item.hiMem || '';
+      document.getElementById('editDieMem').value = item.dieMem || '';
+      document.getElementById('editKeroMem').value = item.keroMem || '';
+      document.getElementById('editMemo').value = item.memo || '';
+
+      document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
+
+    function updateEditedData() {
+      const id = Number(document.getElementById('editId').value);
+      const item = db.find(i => i.id === id);
+      if (!item) return;
+
+      item.store = document.getElementById('editStore').value || '未設定店舗';
+      item.date = document.getElementById('editDate').value;
+      item.regSign = document.getElementById('editRegSign').value;
+      item.hiSign = document.getElementById('editHiSign').value;
+      item.dieSign = document.getElementById('editDieSign').value;
+      item.keroSign = document.getElementById('editKeroSign').value;
+      item.regMem = document.getElementById('editRegMem').value;
+      item.hiMem = document.getElementById('editHiMem').value;
+      item.dieMem = document.getElementById('editDieMem').value;
+      item.keroMem = document.getElementById('editKeroMem').value;
+      item.memo = document.getElementById('editMemo').value;
+
+      localStorage.setItem('gasData', JSON.stringify(db));
+      closeEditModal();
+
+      updateStoreDropdowns();
+      renderHistory();
+      renderChart();
+      updateMapMarkers();
     }
 
     function fmt(val) {
@@ -507,8 +629,24 @@
       let filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
       filtered = [...filtered].reverse();
 
-      const labels = filtered.map(i => i.date.slice(5, 10));
-      const chartData = filtered.map(i => i[selectedFuel] || null);
+      const dateGrouped = {};
+      filtered.forEach(item => {
+        const dateKey = item.date.slice(0, 10);
+        const val = parseFloat(item[selectedFuel]);
+        if (!isNaN(val)) {
+          if (!dateGrouped[dateKey]) {
+            dateGrouped[dateKey] = [];
+          }
+          dateGrouped[dateKey].push(val);
+        }
+      });
+
+      const labels = Object.keys(dateGrouped).map(d => d.slice(5));
+      const chartData = Object.keys(dateGrouped).map(d => {
+        const arr = dateGrouped[d];
+        const sum = arr.reduce((acc, curr) => acc + curr, 0);
+        return (sum / arr.length).toFixed(1);
+      });
       
       if (chart) chart.destroy();
       chart = new Chart(ctx, {
@@ -517,7 +655,7 @@
           labels: labels,
           datasets: [
             {
-              label: fuelNames[selectedFuel],
+              label: `${fuelNames[selectedFuel]} (日別平均)`,
               data: chartData,
               borderColor: fuelColors[selectedFuel],
               backgroundColor: fuelColors[selectedFuel] + '22',
