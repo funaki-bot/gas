@@ -91,7 +91,7 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 価格推移グラフ（自社SS基準・距離絞り込み機能付き） -->
+  <!-- 価格推移グラフ -->
   <div class="card">
     <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
@@ -139,7 +139,7 @@
   <!-- 履歴データ -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <label style="margin:0;">履歴データ <span style="font-weight:normal; font-size:0.75rem; color:#666;">(直近50件表示)</span></label>
+      <label style="margin:0;">履歴データ <span style="font-weight:normal; font-size:0.75rem; color:#666;">(日時順・直近50件表示)</span></label>
       <div style="display:flex; gap:4px;">
         <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV保存</button>
         <button type="button" onclick="sendEmailCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">CSV保存＆メール起動</button>
@@ -415,10 +415,9 @@
       map.closePopup();
     }
 
-    // 2地点の緯度経度から直線距離(km)を計算する関数 (ヒュベニの公式)
     function calcDistanceKm(lat1, lng1, lat2, lng2) {
       if (!lat1 || !lng1 || !lat2 || !lng2) return null;
-      const R = 6371; // 地球の半径 (km)
+      const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLng = (lng2 - lng1) * Math.PI / 180;
       const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -433,17 +432,13 @@
       renderChart();
     }
 
-    // 各店舗のドロップダウン更新（距離ソート＆距離絞り込み）
     function updateStoreDropdowns() {
       const allStores = Array.from(new Set(db.map(i => i.store).filter(Boolean)));
-
-      // セルフィックス店舗のリストを取得
       const selfixStores = allStores.filter(s => s.includes('セルフィックス') || s.includes('Selfix'));
 
       const selfixBaseSelect = document.getElementById('chartSelfixBaseFilter');
       const currentSelfixBase = selfixBaseSelect ? selfixBaseSelect.value : 'ALL';
 
-      // 自社基準店舗ドロップダウンの更新
       let selfixOptionsHTML = '<option value="ALL">すべてのセルフィックス店舗</option>';
       selfixStores.forEach(s => {
         selfixOptionsHTML += `<option value="${s}">${s}</option>`;
@@ -453,7 +448,6 @@
         selfixBaseSelect.value = selfixStores.includes(currentSelfixBase) ? currentSelfixBase : 'ALL';
       }
 
-      // 基準とするセルフィックス店舗の座標を取得（複数ある場合は最新データ）
       let baseLat = null, baseLng = null;
       const activeBaseStore = selfixBaseSelect ? selfixBaseSelect.value : 'ALL';
       if (activeBaseStore !== 'ALL') {
@@ -467,7 +461,6 @@
       const radiusVal = document.getElementById('chartDistanceRadiusFilter') ? document.getElementById('chartDistanceRadiusFilter').value : 'ALL';
       const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
 
-      // 各店舗の最新座標と基準距離を計算
       const storeDistList = allStores.map(sName => {
         const item = db.find(i => i.store === sName && i.lat && i.lng);
         let dist = null;
@@ -477,13 +470,11 @@
         return { store: sName, dist: dist };
       });
 
-      // 距離指定がある場合はフィルタリング
       let filteredDistList = storeDistList;
       if (radiusKm !== null && baseLat && baseLng) {
         filteredDistList = storeDistList.filter(item => item.dist !== null && item.dist <= radiusKm);
       }
 
-      // 距離が近い順に並び替え
       filteredDistList.sort((a, b) => {
         if (a.dist === null) return 1;
         if (b.dist === null) return -1;
@@ -563,12 +554,20 @@
       updateMapMarkers();
     }
 
+    // 履歴データの描画処理（調査日時 date の降順ソートを適用）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
       tbody.innerHTML = '';
 
-      const filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
+      // 調査日時（date）の新しい順にソート
+      let sortedDb = [...db].sort((a, b) => {
+        if (a.date > b.date) return -1;
+        if (a.date < b.date) return 1;
+        return 0;
+      });
+
+      const filtered = (selectedStore === 'ALL') ? sortedDb : sortedDb.filter(i => i.store === selectedStore);
       const displayData = filtered.slice(0, 50);
 
       displayData.forEach(item => {
@@ -660,7 +659,6 @@
       }
     }
 
-    // グラフ生成処理（距離制限＆基準セルフィックス比較に対応）
     function renderChart() {
       const selfixBaseStore = document.getElementById('chartSelfixBaseFilter') ? document.getElementById('chartSelfixBaseFilter').value : 'ALL';
       const radiusVal = document.getElementById('chartDistanceRadiusFilter') ? document.getElementById('chartDistanceRadiusFilter').value : 'ALL';
@@ -669,7 +667,6 @@
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
 
-      // 基準セルフィックス店舗の座標を取得
       let baseLat = null, baseLng = null;
       if (selfixBaseStore !== 'ALL') {
         const item = db.find(i => i.store === selfixBaseStore && i.lat && i.lng);
@@ -681,7 +678,6 @@
 
       const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
 
-      // 距離制限による対象店舗リストを取得
       let targetData = db.filter(item => {
         if (radiusKm !== null && baseLat && baseLng && item.lat && item.lng) {
           const dist = calcDistanceKm(baseLat, baseLng, item.lat, item.lng);
@@ -707,7 +703,6 @@
         }
       });
 
-      // 比較用の自社セルフィックスデータ抽出（指定した基準店舗、または全体）
       const selfixData = db.filter(item => {
         if (selfixBaseStore !== 'ALL') {
           return item.store === selfixBaseStore;
@@ -795,8 +790,16 @@
 
     function exportCSV() {
       if (db.length === 0) { alert('データがありません。'); return; }
+      
+      // 出力CSVも調査日時の新しい順にソート
+      let sortedDb = [...db].sort((a, b) => {
+        if (a.date > b.date) return -1;
+        if (a.date < b.date) return 1;
+        return 0;
+      });
+
       let csv = "\uFEFF日時,店舗名,看板種別,レギュラー看板,レギュラー会員,ハイオク看板,ハイオク会員,軽油看板,軽油会員,灯油看板,灯油会員,メモ,緯度,経度\n";
-      db.forEach(i => {
+      sortedDb.forEach(i => {
         csv += `"${i.date}","${i.store}","${i.signType||'一般'}","${i.regSign}","${i.regMem}","${i.hiSign}","${i.hiMem}","${i.dieSign}","${i.dieMem}","${i.keroSign}","${i.keroMem}","${i.memo}","${i.lat||''}","${i.lng||''}"\n`;
       });
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
