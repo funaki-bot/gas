@@ -61,6 +61,13 @@
       <label style="margin:0;">位置確認マップ（青・赤ピンはドラッグ移動可能）</label>
       <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">📍 現在地に移動</button>
     </div>
+
+    <!-- 地図検索バー -->
+    <div style="display: flex; gap: 6px; margin-top: 8px;">
+      <input type="text" id="mapSearchInput" placeholder="地名・住所・施設名で検索 (例: 岡崎市戸崎町)" style="font-size:0.85rem; padding:6px 10px;" onkeydown="if(event.key==='Enter') searchLocation()">
+      <button type="button" onclick="searchLocation()" style="width:auto; margin:0; padding:6px 12px; font-size:0.85rem; white-space:nowrap; background:#17a2b8;">🔍 検索</button>
+    </div>
+
     <div id="map"></div>
   </div>
 
@@ -424,6 +431,28 @@
       }).addTo(map);
 
       updateMapMarkers();
+    }
+
+    // 地図キーワード検索処理 (Nominatim APIを利用)
+    function searchLocation() {
+      const query = document.getElementById('mapSearchInput').value.trim();
+      if (!query) return;
+
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data && data.length > 0) {
+            const lat = parseFloat(data[0].lat);
+            const lon = parseFloat(data[0].lon);
+            map.setView([lat, lon], 15);
+            setDraggableMarker(lat, lon);
+          } else {
+            alert('該当する場所が見つかりませんでした。キーワードを変更してお試しください。');
+          }
+        })
+        .catch(err => {
+          alert('検索エラーが発生しました。ネットワーク環境をご確認ください。');
+        });
     }
 
     function setDraggableMarker(lat, lng) {
