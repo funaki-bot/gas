@@ -23,7 +23,7 @@
     .fav-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 4px 8px; border-radius: 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
     .fav-del { color: #dc3545; font-weight: bold; cursor: pointer; padding: 0 2px; }
-    #map { height: 350px; border-radius: 6px; margin-top: 8px; }
+    #map { height: 480px; border-radius: 6px; margin-top: 8px; }
     .map-header { display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
@@ -48,7 +48,7 @@
   <!-- 1. 位置確認マップ -->
   <div class="card">
     <div class="map-header">
-      <label style="margin:0;">位置確認マップ (⛽ピンタップで店舗選択)</label>
+      <label style="margin:0;">位置確認マップ（青ピンはドラッグして位置調整）</label>
       <button type="button" onclick="recenterMap()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">📍 現在地に移動</button>
     </div>
     <div id="map"></div>
@@ -139,7 +139,6 @@
       </div>
     </div>
     
-    <!-- 固定高さとスクロール対応のコンテナ -->
     <div class="table-container">
       <table id="historyTable">
         <thead>
@@ -209,7 +208,6 @@
 
     let map, currentMarker;
     let historyMarkers = [];
-    let nearbySSMarkers = [];
     let chart;
     let currentLat = null, currentLng = null;
 
@@ -271,83 +269,6 @@
       }).addTo(map);
 
       updateMapMarkers();
-      map.on('moveend', fetchNearbySS);
-    }
-
-    function buildDetailedSSName(tags) {
-      if (!tags) return "SS店舗";
-
-      const name = tags.name || tags['name:ja'] || "";
-      const brand = tags.brand || tags['brand:ja'] || "";
-      const ref = tags.ref || tags['branch'] || tags['ref:ja'] || "";
-      const operator = tags.operator || tags.company || tags['operator:ja'] || "";
-
-      let fullName = "";
-
-      if (name) {
-        fullName = name;
-      } else if (brand && ref) {
-        fullName = `${brand} ${ref}`;
-      } else if (brand) {
-        fullName = `${brand} SS`;
-      } else {
-        fullName = "SS店舗";
-      }
-
-      if (operator && !fullName.includes(operator)) {
-        fullName = `${fullName}(${operator})`;
-      }
-
-      return fullName;
-    }
-
-    function fetchNearbySS() {
-      if (map.getZoom() < 12) return;
-
-      const bounds = map.getBounds();
-      const south = bounds.getSouth();
-      const west = bounds.getWest();
-      const north = bounds.getNorth();
-      const east = bounds.getEast();
-
-      const query = `[out:json];(node(${south},${west},${north},${east})[amenity=fuel];way(${south},${west},${north},${east})[amenity=fuel];);out center;`;
-      
-      fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
-        .then(res => res.json())
-        .then(data => {
-          nearbySSMarkers.forEach(m => map.removeLayer(m));
-          nearbySSMarkers = [];
-
-          const greenIcon = L.icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-          });
-
-          if (data && data.elements) {
-            data.elements.forEach(el => {
-              const elLat = el.lat || (el.center && el.center.lat);
-              const elLng = el.lon || (el.center && el.center.lon);
-              
-              if (elLat && elLng && el.tags) {
-                const fullName = buildDetailedSSName(el.tags);
-
-                const popupHtml = `
-                  <b>⛽ ${fullName}</b><br>
-                  <button type="button" style="margin-top:6px; padding:4px 8px; font-size:0.75rem; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer;" 
-                    onclick="selectStoreFromMap('${fullName.replace(/'/g, "\\'")}', ${elLat}, ${elLng})">
-                    📍 この店舗を選択
-                  </button>
-                `;
-
-                const m = L.marker([elLat, elLng], { icon: greenIcon }).addTo(map)
-                  .bindPopup(popupHtml);
-                nearbySSMarkers.push(m);
-              }
-            });
-          }
-        })
-        .catch(() => {});
     }
 
     function setDraggableMarker(lat, lng) {
@@ -376,7 +297,6 @@
             const lng = position.coords.longitude;
             map.setView([lat, lng], 15);
             setDraggableMarker(lat, lng);
-            fetchNearbySS();
           },
           () => {},
           { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
@@ -392,7 +312,6 @@
             const lng = position.coords.longitude;
             map.setView([lat, lng], 16);
             setDraggableMarker(lat, lng);
-            fetchNearbySS();
           },
           (err) => { alert("位置情報を取得できませんでした: " + err.message); },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -484,10 +403,14 @@
     }
 
     function removeFavoriteStore(index) {
-      favorites.splice(index, 1);
-      localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
-      updateFavAreaDropdown();
-      renderFavorites();
+      const fav = favorites[index];
+      const storeName = fav ? fav.name : "この店舗";
+      if (confirm(`「${storeName}」をお気に入りから削除しますか？`)) {
+        favorites.splice(index, 1);
+        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
+        updateFavAreaDropdown();
+        renderFavorites();
+      }
     }
 
     function updateStoreDropdowns() {
@@ -535,7 +458,6 @@
 
       db.unshift(entry);
 
-      // 20,000件上限チェック：超過分は古い順から削除
       const MAX_ITEMS = 20000;
       if (db.length > MAX_ITEMS) {
         db = db.slice(0, MAX_ITEMS);
@@ -556,15 +478,12 @@
       updateMapMarkers();
     }
 
-    // 履歴データの描画（直近50件制限）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
       tbody.innerHTML = '';
 
       const filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
-
-      // 画面表示は直近50件に制限してサクサク化
       const displayData = filtered.slice(0, 50);
 
       displayData.forEach(item => {
