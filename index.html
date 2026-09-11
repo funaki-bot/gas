@@ -134,6 +134,15 @@
     <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
       <div class="filter-row">
+        <span>表示期間:</span>
+        <select id="chartPeriodFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;">
+          <option value="1" selected>直近 1 ヶ月</option>
+          <option value="3">直近 3 ヶ月</option>
+          <option value="6">直近 6 ヶ月</option>
+          <option value="ALL">全期間</option>
+        </select>
+      </div>
+      <div class="filter-row">
         <span>自社基準SS:</span>
         <select id="chartSelfixBaseFilter" onchange="onDistanceFilterChange()" style="padding:4px; font-size:0.85rem;"></select>
       </div>
@@ -591,8 +600,17 @@
       });
 
       let historyOptionsHTML = '<option value="ALL">すべての店舗</option>';
-      allStores.forEach(s => {
-        historyOptionsHTML += `<option value="${s}">${s}</option>`;
+      historyOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
+      
+      let sortedAllStores = [...storeDistList].sort((a, b) => {
+        if (a.dist === null) return 1;
+        if (b.dist === null) return -1;
+        return a.dist - b.dist;
+      });
+
+      sortedAllStores.forEach(item => {
+        const distLabel = (item.dist !== null) ? ` [${item.dist.toFixed(1)}km]` : '';
+        historyOptionsHTML += `<option value="${item.store}">${item.store}${distLabel}</option>`;
       });
 
       chartSelect.innerHTML = chartOptionsHTML;
@@ -600,7 +618,7 @@
 
       const validChartStoreList = filteredDistList.map(i => i.store);
       chartSelect.value = (validChartStoreList.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
-      historySelect.value = allStores.includes(currentHistoryVal) ? currentHistoryVal : 'ALL';
+      historySelect.value = (allStores.includes(currentHistoryVal) || currentHistoryVal === 'SELFIX_ONLY') ? currentHistoryVal : 'ALL';
     }
 
     function saveData() {
@@ -650,7 +668,6 @@
       updateMapMarkers();
     }
 
-    // 履歴セルにおける「変化があった場合のみ矢印表示（数字・マークなし）」のフォーマット関数
     function fmtPriceDiff(val, prevVal) {
       if (!val) return '-';
       const cur = parseFloat(val);
@@ -664,7 +681,7 @@
       } else if (diff < 0) {
         return `${cur}円 <span class="diff-down">🔻</span>`;
       } else {
-        return `${cur}円`; // 変化なし（据え置き）はマーク表示なし
+        return `${cur}円`;
       }
     }
 
@@ -675,7 +692,15 @@
 
       let sortedDb = [...db].sort((a, b) => (a.date > b.date ? -1 : 1));
 
-      const filtered = (selectedStore === 'ALL') ? sortedDb : sortedDb.filter(i => i.store === selectedStore);
+      const filtered = sortedDb.filter(item => {
+        if (selectedStore === 'SELFIX_ONLY') {
+          return item.store.includes('セルフィックス') || item.store.includes('Selfix');
+        } else if (selectedStore !== 'ALL') {
+          return item.store === selectedStore;
+        }
+        return true;
+      });
+
       const displayData = filtered.slice(0, 50);
 
       displayData.forEach(item => {
@@ -780,13 +805,23 @@
       }
     }
 
+    // グラフ生成処理（期間絞り込み対応）
     function renderChart() {
+      const periodVal = document.getElementById('chartPeriodFilter') ? document.getElementById('chartPeriodFilter').value : '1';
       const selfixBaseStore = document.getElementById('chartSelfixBaseFilter') ? document.getElementById('chartSelfixBaseFilter').value : 'ALL';
       const radiusVal = document.getElementById('chartDistanceRadiusFilter') ? document.getElementById('chartDistanceRadiusFilter').value : 'ALL';
       const selectedStore = document.getElementById('chartStoreFilter').value;
       const selectedFuel = document.getElementById('chartFuelFilter').value;
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
+
+      // 期間絞り込み用基準日付の計算
+      let minDateStr = null;
+      if (periodVal !== 'ALL') {
+        const now = new Date();
+        now.setMonth(now.getMonth() - parseInt(periodVal));
+        minDateStr = now.toISOString().slice(0, 10);
+      }
 
       let baseLat = null, baseLng = null;
       if (selfixBaseStore !== 'ALL') {
@@ -800,6 +835,10 @@
       const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
 
       let targetData = db.filter(item => {
+        // 期間フィルター適用
+        if (minDateStr && item.date.slice(0, 10) < minDateStr) return false;
+
+        // 距離フィルター適用
         if (radiusKm !== null && baseLat && baseLng && item.lat && item.lng) {
           const dist = calcDistanceKm(baseLat, baseLng, item.lat, item.lng);
           if (dist > radiusKm) return false;
@@ -825,6 +864,7 @@
       });
 
       const selfixData = db.filter(item => {
+        if (minDateStr && item.date.slice(0, 10) < minDateStr) return false;
         if (selfixBaseStore !== 'ALL') {
           return item.store === selfixBaseStore;
         }
