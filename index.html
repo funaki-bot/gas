@@ -20,9 +20,6 @@
     button:active { background: #0056b3; }
     .btn-gps { background: #28a745; margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .fav-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    .fav-tag { background: #e9ecef; border: 1px solid #ced4da; padding: 4px 8px; border-radius: 16px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
-    .fav-del { color: #dc3545; font-weight: bold; cursor: pointer; padding: 0 2px; }
     #map { height: 480px; border-radius: 6px; margin-top: 8px; }
     .map-header { display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
@@ -64,14 +61,22 @@
     <label>店舗名</label>
     <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
     
-    <!-- 都道府県・エリア絞り込みドロップダウン -->
-    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-      <span style="font-size: 0.8rem; font-weight: bold; white-space: nowrap;">お気に入り表示:</span>
-      <select id="favAreaFilter" onchange="renderFavorites()" style="padding: 4px; font-size: 0.85rem;"></select>
+    <!-- ドロップダウン方式のお気に入り選択（省スペース化） -->
+    <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 8px; margin-top: 8px;">
+      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+        <span style="font-size: 0.8rem; font-weight: bold; white-space: nowrap;">お気に入り選択:</span>
+        <select id="favAreaFilter" onchange="renderFavorites()" style="padding: 4px; font-size: 0.8rem; flex: 1;"></select>
+      </div>
+
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <select id="favStoreSelect" onchange="applySelectedFavStore()" style="padding: 6px; font-size: 0.85rem; flex: 1;">
+          <option value="">-- お気に入り店舗を選択 --</option>
+        </select>
+        <button type="button" onclick="removeSelectedFavStore()" style="width: auto; margin: 0; padding: 6px 8px; font-size: 0.75rem; background: #dc3545; white-space: nowrap;">削除</button>
+      </div>
     </div>
 
-    <div class="fav-tags" id="favContainer"></div>
-
+    <!-- お気に入り新規追加エリア -->
     <div style="display: flex; gap: 6px; margin-top: 8px;">
       <input type="text" id="newFavAreaInput" placeholder="エリア(例:愛知県)" style="width: 35%; font-size: 0.85rem;">
       <input type="text" id="newFavInput" placeholder="お気に入り店舗名" style="width: 65%; font-size: 0.85rem;">
@@ -446,7 +451,6 @@
       select.value = areas.includes(currentVal) ? currentVal : 'ALL';
     }
 
-    // グラフ用エリアドロップダウンの更新
     function updateChartAreaDropdown() {
       const areas = Array.from(new Set(favorites.map(f => f.area || "その他")));
       const select = document.getElementById('chartAreaFilter');
@@ -455,31 +459,61 @@
       const currentVal = select.value;
       let html = '<option value="ALL">すべてのエリア</option>';
       areas.forEach(a => {
-        html += `<option value="${a}">${a}">${a}</option>`;
+        html += `<option value="${a}">${a}</option>`;
       });
       select.innerHTML = html;
       select.value = areas.includes(currentVal) ? currentVal : 'ALL';
     }
 
+    // お気に入りドロップダウンの描画
     function renderFavorites() {
       const selectedArea = document.getElementById('favAreaFilter').value;
-      const container = document.getElementById('favContainer');
-      container.innerHTML = '';
-
+      const select = document.getElementById('favStoreSelect');
+      
       const filtered = (selectedArea === 'ALL') 
         ? favorites 
         : favorites.filter(f => (f.area || "その他") === selectedArea);
 
+      let html = '<option value="">-- お気に入り店舗を選択 --</option>';
       filtered.forEach((fav) => {
         const globalIndex = favorites.indexOf(fav);
-        const tag = document.createElement('div');
-        tag.className = 'fav-tag';
-        tag.innerHTML = `
-          <span onclick="document.getElementById('storeName').value='${fav.name}'">${fav.name}</span>
-          <span class="fav-del" onclick="removeFavoriteStore(${globalIndex})">✕</span>
-        `;
-        container.appendChild(tag);
+        html += `<option value="${globalIndex}">${fav.name} (${fav.area || 'その他'})</option>`;
       });
+      select.innerHTML = html;
+    }
+
+    // ドロップダウン選択時に入力欄へセット
+    function applySelectedFavStore() {
+      const select = document.getElementById('favStoreSelect');
+      const val = select.value;
+      if (val !== "") {
+        const fav = favorites[Number(val)];
+        if (fav) {
+          document.getElementById('storeName').value = fav.name;
+        }
+      }
+    }
+
+    // 選択されたお気に入り店舗の削除処理
+    function removeSelectedFavStore() {
+      const select = document.getElementById('favStoreSelect');
+      const val = select.value;
+      if (val === "") {
+        alert("削除する店舗をお気に入りから選択してください。");
+        return;
+      }
+
+      const index = Number(val);
+      const fav = favorites[index];
+      const storeName = fav ? fav.name : "この店舗";
+
+      if (confirm(`「${storeName}」をお気に入りから削除しますか？`)) {
+        favorites.splice(index, 1);
+        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
+        updateFavAreaDropdown();
+        updateChartAreaDropdown();
+        renderFavorites();
+      }
     }
 
     function addFavoriteStore() {
@@ -495,18 +529,6 @@
         updateChartAreaDropdown();
         renderFavorites();
         nameInput.value = '';
-      }
-    }
-
-    function removeFavoriteStore(index) {
-      const fav = favorites[index];
-      const storeName = fav ? fav.name : "この店舗";
-      if (confirm(`「${storeName}」をお気に入りから削除しますか？`)) {
-        favorites.splice(index, 1);
-        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
-        updateFavAreaDropdown();
-        updateChartAreaDropdown();
-        renderFavorites();
       }
     }
 
@@ -674,7 +696,6 @@
       }
     }
 
-    // エリア別絞り込み ＆ セルフィックス（自社）比較描画対応のグラフ生成関数
     function renderChart() {
       const selectedArea = document.getElementById('chartAreaFilter').value;
       const selectedStore = document.getElementById('chartStoreFilter').value;
@@ -682,7 +703,6 @@
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
       
-      // お気に入りから「指定エリアの店舗名リスト」を取得
       let areaStoreNames = [];
       if (selectedArea !== 'ALL') {
         areaStoreNames = favorites
@@ -690,7 +710,6 @@
           .map(f => f.name);
       }
 
-      // エリア＆店舗の絞り込み処理
       let targetData = db.filter(item => {
         if (selectedArea !== 'ALL' && areaStoreNames.length > 0) {
           if (!areaStoreNames.includes(item.store)) return false;
@@ -703,7 +722,6 @@
 
       targetData = [...targetData].reverse();
 
-      // 日付ごとに価格データをグループ化（対象データ）
       const dateGrouped = {};
       targetData.forEach(item => {
         const dateKey = item.date.slice(0, 10);
@@ -714,7 +732,6 @@
         }
       });
 
-      // セルフィックス店舗のデータを抽出（店舗名に「セルフィックス」含むもの）
       const selfixData = db.filter(item => {
         const isSelfix = item.store.includes('セルフィックス') || item.store.includes('Selfix');
         if (!isSelfix) return false;
@@ -734,7 +751,6 @@
         }
       });
 
-      // 日付軸（X軸）の結合とソート
       const allDates = Array.from(new Set([...Object.keys(dateGrouped), ...Object.keys(selfixGrouped)])).sort();
 
       const labels = allDates.map(d => d.slice(5));
@@ -747,7 +763,6 @@
 
       const datasets = [];
 
-      // メインの折れ線（対象エリア/店舗の平均価格）
       const mainLabel = (selectedStore !== 'ALL') ? selectedStore : (selectedArea !== 'ALL' ? `${selectedArea}の平均` : '全体の平均');
       datasets.push({
         label: `${mainLabel} - ${fuelNames[selectedFuel]}`,
@@ -759,7 +774,6 @@
         spanGaps: true
       });
 
-      // セルフィックス比較用の折れ線（比較チェックONかつデータ存在時）
       if (compareSelfix && Object.keys(selfixGrouped).length > 0) {
         const selfixChartData = allDates.map(d => {
           const arr = selfixGrouped[d];
@@ -771,7 +785,7 @@
         datasets.push({
           label: `セルフィックス (自社平均)`,
           data: selfixChartData,
-          borderColor: '#dc3545', // 赤色の強調線
+          borderColor: '#dc3545',
           borderWidth: 3,
           backgroundColor: 'transparent',
           pointRadius: 4,
