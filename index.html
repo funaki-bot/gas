@@ -27,11 +27,14 @@
     .map-header { display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.75rem; white-space: nowrap; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-    th { background: #f8f9fa; }
+    th { background: #f8f9fa; position: sticky; top: 0; z-index: 1; }
     .filter-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
     .filter-row { display: flex; align-items: center; gap: 8px; }
     .filter-row span { font-size: 0.8rem; font-weight: bold; width: 70px; shrink: 0; }
     .price-section-title { font-size: 0.8rem; font-weight: bold; color: #007bff; margin-top: 8px; margin-bottom: 4px; grid-column: span 2; border-bottom: 1px solid #007bff; padding-bottom: 2px; }
+
+    /* 履歴テーブル用の高さ固定スクロールエリア */
+    .table-container { max-height: 380px; overflow-y: auto; overflow-x: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 8px; }
 
     /* モーダルダイアログのスタイル */
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center; }
@@ -122,7 +125,7 @@
   <!-- 履歴データ -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <label style="margin:0;">履歴データ</label>
+      <label style="margin:0;">履歴データ <span style="font-weight:normal; font-size:0.75rem; color:#666;">(直近50件表示)</span></label>
       <div style="display:flex; gap:4px;">
         <button type="button" onclick="exportCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#17a2b8;">CSV保存</button>
         <button type="button" onclick="sendEmailCSV()" style="width:auto; margin:0; padding:4px 8px; font-size:0.8rem; background:#28a745;">CSV保存＆メール起動</button>
@@ -135,7 +138,9 @@
         <select id="historyStoreFilter" onchange="renderHistory()" style="padding:4px; font-size:0.85rem;"></select>
       </div>
     </div>
-    <div style="overflow-x:auto;">
+    
+    <!-- 固定高さとスクロール対応のコンテナ -->
+    <div class="table-container">
       <table id="historyTable">
         <thead>
           <tr>
@@ -269,7 +274,6 @@
       map.on('moveend', fetchNearbySS);
     }
 
-    // ブランド名・支店名・特約店名を組み合わせた詳細店舗名の構築関数
     function buildDetailedSSName(tags) {
       if (!tags) return "SS店舗";
 
@@ -280,23 +284,16 @@
 
       let fullName = "";
 
-      // 1. 完全な名前タグが存在する場合
       if (name) {
         fullName = name;
-      } 
-      // 2. brand と ref (支店名) がある場合
-      else if (brand && ref) {
+      } else if (brand && ref) {
         fullName = `${brand} ${ref}`;
-      } 
-      // 3. brand のみの場合
-      else if (brand) {
+      } else if (brand) {
         fullName = `${brand} SS`;
-      } 
-      else {
+      } else {
         fullName = "SS店舗";
       }
 
-      // 特約店・運営会社名 (operator) をカッコ書きで追加
       if (operator && !fullName.includes(operator)) {
         fullName = `${fullName}(${operator})`;
       }
@@ -304,7 +301,6 @@
       return fullName;
     }
 
-    // 周辺ガソリンスタンドの自動読み込み＆詳細店舗名の表示
     function fetchNearbySS() {
       if (map.getZoom() < 12) return;
 
@@ -538,6 +534,13 @@
       };
 
       db.unshift(entry);
+
+      // 20,000件上限チェック：超過分は古い順から削除
+      const MAX_ITEMS = 20000;
+      if (db.length > MAX_ITEMS) {
+        db = db.slice(0, MAX_ITEMS);
+      }
+
       localStorage.setItem('gasData', JSON.stringify(db));
       
       alert('保存しました！');
@@ -553,6 +556,7 @@
       updateMapMarkers();
     }
 
+    // 履歴データの描画（直近50件制限）
     function renderHistory() {
       const selectedStore = document.getElementById('historyStoreFilter').value;
       const tbody = document.querySelector('#historyTable tbody');
@@ -560,7 +564,10 @@
 
       const filtered = (selectedStore === 'ALL') ? db : db.filter(i => i.store === selectedStore);
 
-      filtered.forEach(item => {
+      // 画面表示は直近50件に制限してサクサク化
+      const displayData = filtered.slice(0, 50);
+
+      displayData.forEach(item => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${item.date.replace('T', ' ')}</td>
