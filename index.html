@@ -18,7 +18,6 @@
     input, select, textarea, button { width: 100%; padding: 10px; font-size: 1rem; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
     button { background: #007bff; color: white; border: none; font-weight: bold; margin-top: 12px; cursor: pointer; }
     button:active { background: #0056b3; }
-    .btn-gps { background: #28a745; margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #map { height: 480px; border-radius: 6px; margin-top: 8px; }
     .map-header { display: flex; justify-content: space-between; align-items: center; }
@@ -60,34 +59,6 @@
   <div class="card">
     <label>店舗名</label>
     <input type="text" id="storeName" placeholder="例: EneJet戸崎町SS(光南工業)">
-    
-    <!-- ドロップダウン方式のお気に入り選択（省スペース化） -->
-    <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 8px; margin-top: 8px;">
-      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-        <span style="font-size: 0.8rem; font-weight: bold; white-space: nowrap;">お気に入り選択:</span>
-        <select id="favAreaFilter" onchange="renderFavorites()" style="padding: 4px; font-size: 0.8rem; flex: 1;"></select>
-      </div>
-
-      <div style="display: flex; gap: 6px; align-items: center;">
-        <select id="favStoreSelect" onchange="applySelectedFavStore()" style="padding: 6px; font-size: 0.85rem; flex: 1;">
-          <option value="">-- お気に入り店舗を選択 --</option>
-        </select>
-        <button type="button" onclick="removeSelectedFavStore()" style="width: auto; margin: 0; padding: 6px 8px; font-size: 0.75rem; background: #dc3545; white-space: nowrap;">削除</button>
-      </div>
-    </div>
-
-    <!-- お気に入り新規追加エリア（アコーディオン） -->
-    <div style="margin-top: 6px;">
-      <button type="button" onclick="toggleFavAddArea()" style="background: none; color: #6c757d; border: none; font-size: 0.75rem; text-decoration: underline; padding: 2px 0; margin-top: 2px; text-align: left; width: auto; cursor: pointer;">
-        ➕ お気に入り店舗を新規登録
-      </button>
-      
-      <div id="favAddArea" style="display: none; gap: 6px; margin-top: 6px; background: #fff; padding: 8px; border: 1px dashed #ced4da; border-radius: 6px;">
-        <input type="text" id="newFavAreaInput" placeholder="エリア(例:愛知県)" style="width: 35%; font-size: 0.85rem;">
-        <input type="text" id="newFavInput" placeholder="お気に入り店舗名" style="width: 65%; font-size: 0.85rem;">
-        <button type="button" onclick="addFavoriteStore()" style="width: auto; margin: 0; padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">追加</button>
-      </div>
-    </div>
 
     <label>日時</label>
     <input type="datetime-local" id="surveyDate">
@@ -120,14 +91,10 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 価格推移グラフ（エリア連動店舗絞り込み対応） -->
+  <!-- 価格推移グラフ -->
   <div class="card">
     <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
-      <div class="filter-row">
-        <span>エリア絞り込み:</span>
-        <select id="chartAreaFilter" onchange="onChartAreaChange()" style="padding:4px; font-size:0.85rem;"></select>
-      </div>
       <div class="filter-row">
         <span>店舗絞り込み:</span>
         <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
@@ -239,13 +206,6 @@
 
   <script>
     let db = JSON.parse(localStorage.getItem('gasData') || '[]');
-    
-    const defaultFavs = [
-      { area: "愛知県", name: "EneJet戸崎町SS(光南工業)" },
-      { area: "愛知県", name: "D.D.セルフ北名古屋(モビリニア)" },
-      { area: "岐阜県", name: "セルフィックス岐阜東(日商有田)" }
-    ];
-    let favorites = JSON.parse(localStorage.getItem('gasFavsV2') || JSON.stringify(defaultFavs));
 
     let map, currentMarker;
     let historyMarkers = [];
@@ -270,24 +230,12 @@
     window.onload = function() {
       resetFormDateTime();
       initMap();
-      updateFavAreaDropdown();
-      updateChartAreaDropdown();
-      renderFavorites();
       updateStoreDropdowns();
       renderHistory();
       renderChart();
       autoSetCurrentLocation();
       setupEnterNavigation();
     };
-
-    function toggleFavAddArea() {
-      const area = document.getElementById('favAddArea');
-      if (area.style.display === 'none' || area.style.display === '') {
-        area.style.display = 'flex';
-      } else {
-        area.style.display = 'none';
-      }
-    }
 
     function selectSignType(type) {
       selectedSignType = type;
@@ -453,124 +401,8 @@
       map.closePopup();
     }
 
-    function updateFavAreaDropdown() {
-      const areas = Array.from(new Set(favorites.map(f => f.area || "その他")));
-      const select = document.getElementById('favAreaFilter');
-      const currentVal = select.value;
-
-      let html = '<option value="ALL">すべてのエリア</option>';
-      areas.forEach(a => {
-        html += `<option value="${a}">${a}</option>`;
-      });
-      select.innerHTML = html;
-      select.value = areas.includes(currentVal) ? currentVal : 'ALL';
-    }
-
-    function updateChartAreaDropdown() {
-      const areas = Array.from(new Set(favorites.map(f => f.area || "その他")));
-      const select = document.getElementById('chartAreaFilter');
-      if (!select) return;
-
-      const currentVal = select.value;
-      let html = '<option value="ALL">すべてのエリア</option>';
-      areas.forEach(a => {
-        html += `<option value="${a}">${a}</option>`;
-      });
-      select.innerHTML = html;
-      select.value = areas.includes(currentVal) ? currentVal : 'ALL';
-    }
-
-    function renderFavorites() {
-      const selectedArea = document.getElementById('favAreaFilter').value;
-      const select = document.getElementById('favStoreSelect');
-      
-      const filtered = (selectedArea === 'ALL') 
-        ? favorites 
-        : favorites.filter(f => (f.area || "その他") === selectedArea);
-
-      let html = '<option value="">-- お気に入り店舗を選択 --</option>';
-      filtered.forEach((fav) => {
-        const globalIndex = favorites.indexOf(fav);
-        html += `<option value="${globalIndex}">${fav.name} (${fav.area || 'その他'})</option>`;
-      });
-      select.innerHTML = html;
-    }
-
-    function applySelectedFavStore() {
-      const select = document.getElementById('favStoreSelect');
-      const val = select.value;
-      if (val !== "") {
-        const fav = favorites[Number(val)];
-        if (fav) {
-          document.getElementById('storeName').value = fav.name;
-        }
-      }
-    }
-
-    function removeSelectedFavStore() {
-      const select = document.getElementById('favStoreSelect');
-      const val = select.value;
-      if (val === "") {
-        alert("削除する店舗をお気に入りから選択してください。");
-        return;
-      }
-
-      const index = Number(val);
-      const fav = favorites[index];
-      const storeName = fav ? fav.name : "この店舗";
-
-      if (confirm(`「${storeName}」をお気に入りから削除しますか？`)) {
-        favorites.splice(index, 1);
-        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
-        updateFavAreaDropdown();
-        updateChartAreaDropdown();
-        renderFavorites();
-      }
-    }
-
-    function addFavoriteStore() {
-      const nameInput = document.getElementById('newFavInput');
-      const areaInput = document.getElementById('newFavAreaInput');
-      const nameVal = nameInput.value.trim();
-      const areaVal = areaInput.value.trim() || "その他";
-
-      if (nameVal && !favorites.some(f => f.name === nameVal)) {
-        favorites.push({ area: areaVal, name: nameVal });
-        localStorage.setItem('gasFavsV2', JSON.stringify(favorites));
-        updateFavAreaDropdown();
-        updateChartAreaDropdown();
-        renderFavorites();
-        nameInput.value = '';
-        toggleFavAddArea();
-      }
-    }
-
-    // エリア変更時にグラフ用店舗ドロップダウンを連動して絞り込む処理
-    function onChartAreaChange() {
-      updateStoreDropdowns();
-      renderChart();
-    }
-
-    // エリアの選択状況に応じて店舗絞り込みドロップダウンを更新
     function updateStoreDropdowns() {
-      const selectedChartArea = document.getElementById('chartAreaFilter') ? document.getElementById('chartAreaFilter').value : 'ALL';
-
-      // 該当エリアのお気に入り店舗名リスト
-      let areaFavStoreNames = [];
-      if (selectedChartArea !== 'ALL') {
-        areaFavStoreNames = favorites
-          .filter(f => (f.area || "その他") === selectedChartArea)
-          .map(f => f.name);
-      }
-
-      // 全記録店舗
       const allStores = Array.from(new Set(db.map(i => i.store).filter(Boolean)));
-
-      // エリアが絞り込まれている場合は、そのエリアに属する店舗のみ抽出
-      let filteredStores = allStores;
-      if (selectedChartArea !== 'ALL') {
-        filteredStores = allStores.filter(s => areaFavStoreNames.includes(s));
-      }
 
       const chartSelect = document.getElementById('chartStoreFilter');
       const historySelect = document.getElementById('historyStoreFilter');
@@ -581,7 +413,7 @@
       let chartOptionsHTML = '<option value="ALL">すべての店舗 (平均)</option>';
       chartOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
 
-      filteredStores.forEach(s => {
+      allStores.forEach(s => {
         chartOptionsHTML += `<option value="${s}">${s}</option>`;
       });
 
@@ -593,7 +425,7 @@
       chartSelect.innerHTML = chartOptionsHTML;
       historySelect.innerHTML = historyOptionsHTML;
 
-      chartSelect.value = (filteredStores.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
+      chartSelect.value = (allStores.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
       historySelect.value = allStores.includes(currentHistoryVal) ? currentHistoryVal : 'ALL';
     }
 
@@ -741,23 +573,12 @@
     }
 
     function renderChart() {
-      const selectedArea = document.getElementById('chartAreaFilter').value;
       const selectedStore = document.getElementById('chartStoreFilter').value;
       const selectedFuel = document.getElementById('chartFuelFilter').value;
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
-      
-      let areaStoreNames = [];
-      if (selectedArea !== 'ALL') {
-        areaStoreNames = favorites
-          .filter(f => (f.area || "その他") === selectedArea)
-          .map(f => f.name);
-      }
 
       let targetData = db.filter(item => {
-        if (selectedArea !== 'ALL' && areaStoreNames.length > 0) {
-          if (!areaStoreNames.includes(item.store)) return false;
-        }
         if (selectedStore === 'SELFIX_ONLY') {
           return item.store.includes('セルフィックス') || item.store.includes('Selfix');
         } else if (selectedStore !== 'ALL') {
@@ -779,12 +600,7 @@
       });
 
       const selfixData = db.filter(item => {
-        const isSelfix = item.store.includes('セルフィックス') || item.store.includes('Selfix');
-        if (!isSelfix) return false;
-        if (selectedArea !== 'ALL' && areaStoreNames.length > 0) {
-          if (!areaStoreNames.includes(item.store)) return false;
-        }
-        return true;
+        return item.store.includes('セルフィックス') || item.store.includes('Selfix');
       });
 
       const selfixGrouped = {};
@@ -814,8 +630,6 @@
         mainLabel = "セルフィックス店舗のみ";
       } else if (selectedStore !== 'ALL') {
         mainLabel = selectedStore;
-      } else if (selectedArea !== 'ALL') {
-        mainLabel = `${selectedArea}の平均`;
       }
 
       datasets.push({
