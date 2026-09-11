@@ -26,7 +26,7 @@
     th { background: #f8f9fa; position: sticky; top: 0; z-index: 1; }
     .filter-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
     .filter-row { display: flex; align-items: center; gap: 8px; }
-    .filter-row span { font-size: 0.8rem; font-weight: bold; width: 70px; shrink: 0; }
+    .filter-row span { font-size: 0.8rem; font-weight: bold; width: 85px; shrink: 0; }
     .price-section-title { font-size: 0.8rem; font-weight: bold; color: #007bff; margin-top: 8px; margin-bottom: 4px; grid-column: span 2; border-bottom: 1px solid #007bff; padding-bottom: 2px; }
 
     /* 看板種別ボタンのスタイル */
@@ -91,10 +91,24 @@
     <button type="button" onclick="saveData()">データを保存</button>
   </div>
 
-  <!-- 価格推移グラフ -->
+  <!-- 価格推移グラフ（自社SS基準・距離絞り込み機能付き） -->
   <div class="card">
     <label>価格推移グラフ (同一日付は平均値)</label>
     <div class="filter-group">
+      <div class="filter-row">
+        <span>自社基準SS:</span>
+        <select id="chartSelfixBaseFilter" onchange="onDistanceFilterChange()" style="padding:4px; font-size:0.85rem;"></select>
+      </div>
+      <div class="filter-row">
+        <span>検索範囲:</span>
+        <select id="chartDistanceRadiusFilter" onchange="onDistanceFilterChange()" style="padding:4px; font-size:0.85rem;">
+          <option value="ALL">指定なし（すべての距離）</option>
+          <option value="3">半径 3 km 以内</option>
+          <option value="5" selected>半径 5 km 以内</option>
+          <option value="10">半径 10 km 以内</option>
+          <option value="20">半径 20 km 以内</option>
+        </select>
+      </div>
       <div class="filter-row">
         <span>店舗絞り込み:</span>
         <select id="chartStoreFilter" onchange="renderChart()" style="padding:4px; font-size:0.85rem;"></select>
@@ -115,7 +129,7 @@
       <div class="filter-row" style="margin-top:4px;">
         <label style="font-size:0.85rem; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; margin:0;">
           <input type="checkbox" id="compareSelfixCheck" onchange="renderChart()" style="width:auto; margin:0;" checked>
-          セルフィックス（自社）の平均価格と比較表示する
+          基準自社SSの平均価格と比較表示する
         </label>
       </div>
     </div>
@@ -401,8 +415,80 @@
       map.closePopup();
     }
 
+    // 2地点の緯度経度から直線距離(km)を計算する関数 (ヒュベニの公式)
+    function calcDistanceKm(lat1, lng1, lat2, lng2) {
+      if (!lat1 || !lng1 || !lat2 || !lng2) return null;
+      const R = 6371; // 地球の半径 (km)
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    function onDistanceFilterChange() {
+      updateStoreDropdowns();
+      renderChart();
+    }
+
+    // 各店舗のドロップダウン更新（距離ソート＆距離絞り込み）
     function updateStoreDropdowns() {
       const allStores = Array.from(new Set(db.map(i => i.store).filter(Boolean)));
+
+      // セルフィックス店舗のリストを取得
+      const selfixStores = allStores.filter(s => s.includes('セルフィックス') || s.includes('Selfix'));
+
+      const selfixBaseSelect = document.getElementById('chartSelfixBaseFilter');
+      const currentSelfixBase = selfixBaseSelect ? selfixBaseSelect.value : 'ALL';
+
+      // 自社基準店舗ドロップダウンの更新
+      let selfixOptionsHTML = '<option value="ALL">すべてのセルフィックス店舗</option>';
+      selfixStores.forEach(s => {
+        selfixOptionsHTML += `<option value="${s}">${s}</option>`;
+      });
+      if (selfixBaseSelect) {
+        selfixBaseSelect.innerHTML = selfixOptionsHTML;
+        selfixBaseSelect.value = selfixStores.includes(currentSelfixBase) ? currentSelfixBase : 'ALL';
+      }
+
+      // 基準とするセルフィックス店舗の座標を取得（複数ある場合は最新データ）
+      let baseLat = null, baseLng = null;
+      const activeBaseStore = selfixBaseSelect ? selfixBaseSelect.value : 'ALL';
+      if (activeBaseStore !== 'ALL') {
+        const item = db.find(i => i.store === activeBaseStore && i.lat && i.lng);
+        if (item) { baseLat = item.lat; baseLng = item.lng; }
+      } else if (selfixStores.length > 0) {
+        const item = db.find(i => (i.store.includes('セルフィックス') || i.store.includes('Selfix')) && i.lat && i.lng);
+        if (item) { baseLat = item.lat; baseLng = item.lng; }
+      }
+
+      const radiusVal = document.getElementById('chartDistanceRadiusFilter') ? document.getElementById('chartDistanceRadiusFilter').value : 'ALL';
+      const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
+
+      // 各店舗の最新座標と基準距離を計算
+      const storeDistList = allStores.map(sName => {
+        const item = db.find(i => i.store === sName && i.lat && i.lng);
+        let dist = null;
+        if (item && baseLat && baseLng) {
+          dist = calcDistanceKm(baseLat, baseLng, item.lat, item.lng);
+        }
+        return { store: sName, dist: dist };
+      });
+
+      // 距離指定がある場合はフィルタリング
+      let filteredDistList = storeDistList;
+      if (radiusKm !== null && baseLat && baseLng) {
+        filteredDistList = storeDistList.filter(item => item.dist !== null && item.dist <= radiusKm);
+      }
+
+      // 距離が近い順に並び替え
+      filteredDistList.sort((a, b) => {
+        if (a.dist === null) return 1;
+        if (b.dist === null) return -1;
+        return a.dist - b.dist;
+      });
 
       const chartSelect = document.getElementById('chartStoreFilter');
       const historySelect = document.getElementById('historyStoreFilter');
@@ -410,11 +496,12 @@
       const currentChartVal = chartSelect.value;
       const currentHistoryVal = historySelect.value;
 
-      let chartOptionsHTML = '<option value="ALL">すべての店舗 (平均)</option>';
+      let chartOptionsHTML = '<option value="ALL">指定範囲内の全店舗 (平均)</option>';
       chartOptionsHTML += '<option value="SELFIX_ONLY">[セルフィックス店舗のみ]</option>';
 
-      allStores.forEach(s => {
-        chartOptionsHTML += `<option value="${s}">${s}</option>`;
+      filteredDistList.forEach(item => {
+        const distLabel = (item.dist !== null) ? ` [${item.dist.toFixed(1)}km]` : '';
+        chartOptionsHTML += `<option value="${item.store}">${item.store}${distLabel}</option>`;
       });
 
       let historyOptionsHTML = '<option value="ALL">すべての店舗</option>';
@@ -425,7 +512,8 @@
       chartSelect.innerHTML = chartOptionsHTML;
       historySelect.innerHTML = historyOptionsHTML;
 
-      chartSelect.value = (allStores.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
+      const validChartStoreList = filteredDistList.map(i => i.store);
+      chartSelect.value = (validChartStoreList.includes(currentChartVal) || currentChartVal === 'SELFIX_ONLY') ? currentChartVal : 'ALL';
       historySelect.value = allStores.includes(currentHistoryVal) ? currentHistoryVal : 'ALL';
     }
 
@@ -572,13 +660,33 @@
       }
     }
 
+    // グラフ生成処理（距離制限＆基準セルフィックス比較に対応）
     function renderChart() {
+      const selfixBaseStore = document.getElementById('chartSelfixBaseFilter') ? document.getElementById('chartSelfixBaseFilter').value : 'ALL';
+      const radiusVal = document.getElementById('chartDistanceRadiusFilter') ? document.getElementById('chartDistanceRadiusFilter').value : 'ALL';
       const selectedStore = document.getElementById('chartStoreFilter').value;
       const selectedFuel = document.getElementById('chartFuelFilter').value;
       const compareSelfix = document.getElementById('compareSelfixCheck').checked;
       const ctx = document.getElementById('priceChart').getContext('2d');
 
+      // 基準セルフィックス店舗の座標を取得
+      let baseLat = null, baseLng = null;
+      if (selfixBaseStore !== 'ALL') {
+        const item = db.find(i => i.store === selfixBaseStore && i.lat && i.lng);
+        if (item) { baseLat = item.lat; baseLng = item.lng; }
+      } else {
+        const item = db.find(i => (i.store.includes('セルフィックス') || i.store.includes('Selfix')) && i.lat && i.lng);
+        if (item) { baseLat = item.lat; baseLng = item.lng; }
+      }
+
+      const radiusKm = (radiusVal !== 'ALL') ? parseFloat(radiusVal) : null;
+
+      // 距離制限による対象店舗リストを取得
       let targetData = db.filter(item => {
+        if (radiusKm !== null && baseLat && baseLng && item.lat && item.lng) {
+          const dist = calcDistanceKm(baseLat, baseLng, item.lat, item.lng);
+          if (dist > radiusKm) return false;
+        }
         if (selectedStore === 'SELFIX_ONLY') {
           return item.store.includes('セルフィックス') || item.store.includes('Selfix');
         } else if (selectedStore !== 'ALL') {
@@ -599,7 +707,11 @@
         }
       });
 
+      // 比較用の自社セルフィックスデータ抽出（指定した基準店舗、または全体）
       const selfixData = db.filter(item => {
+        if (selfixBaseStore !== 'ALL') {
+          return item.store === selfixBaseStore;
+        }
         return item.store.includes('セルフィックス') || item.store.includes('Selfix');
       });
 
@@ -625,7 +737,7 @@
 
       const datasets = [];
 
-      let mainLabel = "全体の平均";
+      let mainLabel = "範囲内全店舗平均";
       if (selectedStore === 'SELFIX_ONLY') {
         mainLabel = "セルフィックス店舗のみ";
       } else if (selectedStore !== 'ALL') {
@@ -650,8 +762,10 @@
           return (sum / arr.length).toFixed(1);
         });
 
+        const selfixLabel = (selfixBaseStore !== 'ALL') ? selfixBaseStore : 'セルフィックス (自社平均)';
+
         datasets.push({
-          label: `セルフィックス (自社平均)`,
+          label: selfixLabel,
           data: selfixChartData,
           borderColor: '#dc3545',
           borderWidth: 3,
